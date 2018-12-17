@@ -1,7 +1,7 @@
 from keras.callbacks import ModelCheckpoint, TensorBoard
 from keras.optimizers import Adam
 
-from custom.callbacks import LRFinder, SGDRScheduler, LRSchedulerPerStep
+from custom.callbacks import LRFinder, SGDRScheduler, LRSchedulerPerStep, SingleModelCK
 from segmenter import get_or_create, save_config
 from segmenter.data_loader import DataLoader
 
@@ -14,12 +14,12 @@ if __name__ == '__main__':
 
     src_dict_path = "../data/src_dict.json"  # 源字典路径
     tgt_dict_path = "../data/tgt_dict.json"  # 目标字典路径
-    batch_size = 64
+    batch_size = 32
     epochs = 64
 
     data_loader = DataLoader(src_dict_path=src_dict_path,
                              tgt_dict_path=tgt_dict_path,
-                             max_len=500,
+                             max_len=300,
                              batch_size=batch_size,
                              sparse_target=False)
 
@@ -33,11 +33,11 @@ if __name__ == '__main__':
     config = {
         'src_vocab_size': data_loader.src_vocab_size,
         'tgt_vocab_size': data_loader.tgt_vocab_size,
-        'max_seq_len': 500,
+        'max_seq_len': 300,
         'num_layers': 6,
         'model_dim': 256,
         'num_heads': 8,
-        'ffn_dim': 1024,
+        'ffn_dim': 512,
         'dropout': 0.1
     }
 
@@ -51,11 +51,12 @@ if __name__ == '__main__':
 
     segmenter.model.summary()
 
-    ck = ModelCheckpoint(weights_save_path,
-                         save_best_only=True,
-                         save_weights_only=True,
-                         monitor='val_loss',
-                         verbose=0)
+    ck = SingleModelCK(weights_save_path,
+                       model=segmenter.model,
+                       save_best_only=True,
+                       save_weights_only=True,
+                       monitor='val_loss',
+                       verbose=0)
     log = TensorBoard(log_dir='../logs',
                       histogram_freq=0,
                       batch_size=data_loader.batch_size,
