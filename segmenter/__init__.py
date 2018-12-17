@@ -7,6 +7,7 @@ import numpy as np
 from keras import Input, Model
 from keras.layers import Dense
 from keras.optimizers import Adam
+from keras.utils.training_utils import multi_gpu_model
 from keras_contrib.layers import CRF
 from keras_preprocessing.sequence import pad_sequences
 from keras_preprocessing.text import Tokenizer
@@ -44,7 +45,8 @@ class TFSegmenter:
                  optimizer=Adam(),
                  src_tokenizer: Tokenizer = None,
                  tgt_tokenizer: Tokenizer = None,
-                 weights_path=None
+                 weights_path=None,
+                 num_gpu=1
                  ):
         self.optimizer = optimizer
         self.src_tokenizer = src_tokenizer
@@ -57,6 +59,7 @@ class TFSegmenter:
         self.num_heads = num_heads
         self.ffn_dim = ffn_dim
         self.dropout = dropout
+        self.num_gpu = num_gpu
         self.encoder = Encoder(src_vocab_size, max_seq_len, num_layers, model_dim, num_heads, ffn_dim, dropout)
         self.linear = Dense(tgt_vocab_size + 1, use_bias=False, activation="softmax")
         self.crf = CRF(tgt_vocab_size + 1, sparse_target=False)
@@ -76,6 +79,10 @@ class TFSegmenter:
         # y_pred = self.crf(final_output)
 
         model = Model([src_seq_input], y_pred)
+
+        if self.num_gpu > 1:
+            model = multi_gpu_model(model, gpus=self.num_gpu)
+
         model.compile(self.optimizer, loss=categorical_crossentropy, metrics=[categorical_accuracy])
 
         return model
@@ -159,6 +166,7 @@ class TFSegmenter:
     def get_or_create(config, src_dict_path=None,
                       tgt_dict_path=None,
                       weights_path=None,
+                      num_gpu=1,
                       optimizer=Adam(),
                       encoding="utf-8"):
         if TFSegmenter.__singleton is None:
@@ -176,6 +184,7 @@ class TFSegmenter:
             if tgt_dict_path is not None:
                 config['tgt_tokenizer'] = load_dictionary(tgt_dict_path, encoding)
 
+            config["num_gpu"] = num_gpu
             config['weights_path'] = weights_path
             config['optimizer'] = optimizer
             TFSegmenter.__singleton = TFSegmenter(**config)

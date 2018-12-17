@@ -3,3 +3,4 @@ tests/
 data/
 logs/
 models/
+./*.py
