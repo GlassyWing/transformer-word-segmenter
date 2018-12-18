@@ -76,7 +76,6 @@ def _concat(x, dim_per_head, num_heads):
 
 
 class MultiHeadAttention:
-    __count = 0
 
     def __init__(self, model_dim=512, num_heads=8, dropout=0.0):
         self.dim_per_head = model_dim // num_heads
@@ -87,14 +86,11 @@ class MultiHeadAttention:
         self.linear_final = Dense(model_dim, use_bias=False)
         self.dot_product_attention = ScaledDotProductAttention(dropout)
         self.layer_norm = LayerNormalization()
-        self.dropout = Dropout(dropout, name='dropout' + str(MultiHeadAttention.__count))
+        self.dropout = Dropout(dropout)
         self.split = Lambda(lambda x: _split(x, self.dim_per_head, self.num_heads),
-                            output_shape=(None, self.dim_per_head), name='split' + str(MultiHeadAttention.__count))
+                            output_shape=(None, self.dim_per_head))
         self.concat = Lambda(lambda x: _concat(x, self.dim_per_head, self.num_heads),
-                             output_shape=(None, self.num_heads * self.dim_per_head),
-                             name='concat' + str(MultiHeadAttention.__count))
-
-        MultiHeadAttention.__count += 1
+                             output_shape=(None, self.num_heads * self.dim_per_head))
 
     def __call__(self, query, key, value, attn_mask=None):
         """
