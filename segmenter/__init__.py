@@ -7,7 +7,7 @@ import numpy as np
 from keras import Input, Model
 from keras.layers import Dense
 from keras.optimizers import Adam
-from keras.utils.training_utils import multi_gpu_model
+from keras.utils import multi_gpu_model
 from keras_contrib.layers import CRF
 from keras_preprocessing.sequence import pad_sequences
 from keras_preprocessing.text import Tokenizer
@@ -63,29 +63,31 @@ class TFSegmenter:
         self.encoder = Encoder(src_vocab_size, max_seq_len, num_layers, model_dim, num_heads, ffn_dim, dropout)
         self.linear = Dense(tgt_vocab_size + 1, use_bias=False, activation="softmax")
         self.crf = CRF(tgt_vocab_size + 1, sparse_target=False)
-        self.model = self.__build_model()
+        self.model, self.parallel_model = self.__build_model()
+
         if weights_path is not None:
             try:
                 self.model.load_weights(weights_path)
-            except:
+            except Exception as e:
+                print(e)
                 print("Fail to load weights, create a new model!")
 
     def __build_model(self):
         src_seq_input = Input(shape=(None,), dtype="int32", name="src_seq_input")
 
         enc_output, _ = self.encoder(src_seq_input)
-
         y_pred = self.linear(enc_output)
-        # y_pred = self.crf(final_output)
+        # y_pred = self.crf(y_pred)
 
-        model = Model([src_seq_input], y_pred)
-
+        model = Model(src_seq_input, y_pred)
+        parallel_model = model
         if self.num_gpu > 1:
-            model = multi_gpu_model(model, gpus=self.num_gpu)
+            parallel_model = multi_gpu_model(model, gpus=self.num_gpu)
 
-        model.compile(self.optimizer, loss=categorical_crossentropy, metrics=[categorical_accuracy])
+        parallel_model.compile(optimizer=self.optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
+        # parallel_model.compile(self.optimizer, loss=self.crf.loss_function, metrics=[self.crf.accuracy])
 
-        return model
+        return model, parallel_model
 
     def decode_sequences(self, sequences):
         sequences = self._seq_to_matrix(sequences)
