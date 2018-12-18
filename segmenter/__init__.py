@@ -6,29 +6,23 @@ import keras.backend as K
 import numpy as np
 from keras import Input, Model
 from keras.layers import Dense
+from keras.losses import categorical_crossentropy
 from keras.optimizers import Adam
 from keras.utils import multi_gpu_model
 from keras_contrib.layers import CRF
 from keras_preprocessing.sequence import pad_sequences
 from keras_preprocessing.text import Tokenizer
-from keras.losses import categorical_crossentropy
-from keras.metrics import categorical_accuracy
 
 from segmenter.tools import load_dictionary
 from transformer.core import Encoder
 
 
-def _get_loss(args, crf_loss):
-    y_pred, y_true = args
-    loss = crf_loss(y_true, y_pred)
-    loss = K.mean(loss)
-    return loss
-
-
-def _get_accuracy(args, crf_corr):
-    y_pred, y_true = args
-    corr = crf_corr(y_true, y_pred)
-    return K.mean(corr)
+def smoothing_loss(y_true, y_pred):
+    shape = K.int_shape(y_pred)
+    n_class = shape[2]
+    eps = 0.1
+    y_true = y_true * (1 - eps) + eps / n_class
+    return categorical_crossentropy(y_true, y_pred)
 
 
 class TFSegmenter:
@@ -42,12 +36,31 @@ class TFSegmenter:
                  num_heads=8,
                  ffn_dim=2048,
                  dropout=0.0,
+                 use_crf=True,
                  optimizer=Adam(),
                  src_tokenizer: Tokenizer = None,
                  tgt_tokenizer: Tokenizer = None,
                  weights_path=None,
-                 num_gpu=1
-                 ):
+                 num_gpu=1):
+
+        """
+
+        :param src_vocab_size: 源词汇量大小
+        :param tgt_vocab_size: 标签词汇量大小
+        :param max_seq_len: 最大句子长度
+        :param num_layers:  编码器层数
+        :param model_dim:   编码器隐层单元数
+        :param num_heads:   头数
+        :param ffn_dim:
+        :param dropout:     每阶段后的随机失活率
+        :param use_crf:     是否使用随机向量场层作为最后的输出
+        :param optimizer:   优化函数
+        :param src_tokenizer:   源字典
+        :param tgt_tokenizer:   目标字典
+        :param weights_path:    权重载入路径
+        :param num_gpu:         gpu数量
+        """
+
         self.optimizer = optimizer
         self.src_tokenizer = src_tokenizer
         self.tgt_tokenizer = tgt_tokenizer
@@ -60,6 +73,7 @@ class TFSegmenter:
         self.ffn_dim = ffn_dim
         self.dropout = dropout
         self.num_gpu = num_gpu
+        self.use_crf = use_crf
         self.encoder = Encoder(src_vocab_size, max_seq_len, num_layers, model_dim, num_heads, ffn_dim, dropout)
         self.linear = Dense(tgt_vocab_size + 1, use_bias=False, activation="softmax")
         self.crf = CRF(tgt_vocab_size + 1, sparse_target=False)
@@ -76,16 +90,21 @@ class TFSegmenter:
         src_seq_input = Input(shape=(None,), dtype="int32", name="src_seq_input")
 
         enc_output, _ = self.encoder(src_seq_input)
-        y_pred = self.linear(enc_output)
-        # y_pred = self.crf(y_pred)
+
+        if self.use_crf:
+            y_pred = self.crf(enc_output)
+        else:
+            y_pred = self.linear(enc_output)
 
         model = Model(src_seq_input, y_pred)
         parallel_model = model
         if self.num_gpu > 1:
             parallel_model = multi_gpu_model(model, gpus=self.num_gpu)
 
-        parallel_model.compile(optimizer=self.optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
-        # parallel_model.compile(self.optimizer, loss=self.crf.loss_function, metrics=[self.crf.accuracy])
+        if self.use_crf:
+            parallel_model.compile(self.optimizer, loss=self.crf.loss_function, metrics=[self.crf.accuracy])
+        else:
+            parallel_model.compile(optimizer=self.optimizer, loss=smoothing_loss, metrics=['accuracy'])
 
         return model, parallel_model
 
@@ -159,7 +178,8 @@ class TFSegmenter:
             'model_dim': self.model_dim,
             'num_heads': self.num_heads,
             'ffn_dim': self.ffn_dim,
-            'dropout': self.dropout
+            'dropout': self.dropout,
+            'use_crf': self.use_crf
         }
 
     __singleton = None
