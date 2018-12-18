@@ -1,14 +1,9 @@
-import json
-
 import keras.backend as K
 import numpy as np
 import tensorflow as tf
-from keras import Input, Model
 from keras.engine import Layer
 from keras.initializers import Ones, Zeros
 from keras.layers import Dropout, Lambda, Softmax, Dense, Add, Embedding, Conv1D
-from keras.optimizers import Adam
-from keras.preprocessing.sequence import pad_sequences
 
 
 class LayerNormalization(Layer):
