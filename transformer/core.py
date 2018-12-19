@@ -82,10 +82,8 @@ class MultiHeadAttention:
         self.dot_product_attention = ScaledDotProductAttention(dropout)
         self.layer_norm = LayerNormalization()
         self.dropout = Dropout(dropout)
-        self.split = Lambda(lambda x: _split(x, self.dim_per_head, self.num_heads),
-                            output_shape=(None, self.dim_per_head))
-        self.concat = Lambda(lambda x: _concat(x, self.dim_per_head, self.num_heads),
-                             output_shape=(None, self.num_heads * self.dim_per_head))
+        self.split = Lambda(lambda x: _split(x, self.dim_per_head, self.num_heads))
+        self.concat = Lambda(lambda x: _concat(x, self.dim_per_head, self.num_heads))
 
     def __call__(self, query, key, value, attn_mask=None):
         """
@@ -153,6 +151,26 @@ def sequence_mask(seq):
     return K.cast(K.cumsum(tf.eye(seq_len, batch_shape=batch_size), axis=1), dtype='float32')
 
 
+def gen_timing_signal(length, channels, min_timescale=1.0, max_timescale=1.0e4):
+    """
+    Generates a [1, length, channels] timing signal consisting of sinusoids
+    Adapted from:
+    https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/layers/common_attention.py
+    """
+    position = np.arange(length)
+    num_timescales = channels // 2
+    log_timescale_increment = (np.math.log(float(max_timescale) / float(min_timescale)) / (float(num_timescales) - 1))
+    inv_timescales = min_timescale * np.exp(np.arange(num_timescales).astype(np.float) * -log_timescale_increment)
+    scaled_time = np.expand_dims(position, 1) * np.expand_dims(inv_timescales, 0)
+
+    signal = np.concatenate([np.sin(scaled_time), np.cos(scaled_time)], axis=1)
+    signal = np.pad(signal, [[0, 0], [0, channels % 2]],
+                    'constant', constant_values=[0.0, 0.0])
+    signal = signal.reshape([1, length, channels])
+
+    return K.variable(signal, dtype='float32')
+
+
 class PositionalEncoding:
 
     def __init__(self, max_seq_len, d_model=512):
@@ -176,7 +194,7 @@ class PositionalEncoding:
     def __call__(self, x):
         """
 
-        :param x: a tensor with shape of [N, max_seq_len]
+        :param x: a tensor with shape of [N, seq_len]
         :return: position encoding
         """
         pos_seq = Lambda(self.get_pos_seq)(x)
@@ -207,6 +225,103 @@ class PositionalWiseFeedForward:
         output = self.dropout(output)
         output = self.layer_norm(Add()([output, x]))
         return output
+
+
+class ACT:
+
+    def __init__(self, time_enc, pos_enc, max_hop, fn):
+        """
+        :param time_enc: a tensor of shape [1, num_steps, d_model]
+        :param pos_enc: a tensor of shape [1, seq_len, d_model]
+        :param max_hop: num layers
+        :param fn:  encoder
+        """
+        self.time_enc = time_enc
+        self.pos_enc = pos_enc
+        self.max_hop = max_hop
+        self.fn = fn
+        self.p = Dense(1, activation="sigmoid", use_bias=True)
+        self.threshold = 1 - 0.1
+
+    def __call__(self, inputs, self_attention_mask=None):
+        """
+
+        :param inputs: a tensor of shape [B, seq_len, d_model]
+        :param self_attention_mask:
+        :return:
+        """
+
+        fn = self.fn
+        max_hop = self.max_hop
+        time_enc = self.time_enc
+        pos_enc = self.pos_enc
+
+        inputs_len = K.shape(inputs)[1]
+
+        # [B, S]
+        halting_probability = K.zeros(shape=(K.shape(inputs)[0], K.shape(inputs)[1]))
+        # [B, S]
+        remainders = K.zeros(shape=(K.shape(inputs)[0], K.shape(inputs)[1]))
+        # [B, S]
+        n_updates = K.zeros(shape=(K.shape(inputs)[0], K.shape(inputs)[1]))
+        # [B, S, HDD]
+        previous_state = K.zeros_like(inputs)
+
+        state = inputs
+        step = 0
+        # for l in range(self.num_layers):
+        while K.get_value(K.any(K.less(halting_probability, self.threshold))) and \
+                K.get_value(K.any(K.less(n_updates, max_hop))) and \
+                step < max_hop:
+
+            state += time_enc[:, :inputs_len, :] + K.expand_dims(pos_enc[:, step, :], axis=1)
+
+            p = K.squeeze(self.p(state), axis=-1)
+
+            # Mask for inputs which have not halted yet
+            still_running = K.cast(K.less(halting_probability, 1), 'float32')
+
+            # Mask of inputs which halted at this step
+            new_halted = K.cast(K.greater(halting_probability + p * still_running, self.threshold),
+                                'float32') * still_running
+
+            # Mask of inputs which haven't halted, and didn't halt this step
+            still_running = K.cast(K.less_equal(halting_probability + p * still_running, self.threshold),
+                                   'float32') * still_running
+
+            # Add the halting probability for this step to the halting
+            # probabilities for those input which haven't halted yet
+            halting_probability += p * still_running
+
+            # Compute remainders for the inputs which halted at this step
+            remainders += new_halted * (1 - halting_probability)
+
+            # Add the remainders to those inputs which halted at this step
+            halting_probability += new_halted * remainders
+
+            # Increment n_updates for all inputs which are still running
+            n_updates += still_running + new_halted
+
+            # Compute the weight to be applied to the new state and output
+            # 0 when the input has already halted
+            # p when the input hasn't halted yet
+            # the remainders when it halted this step
+            update_weights = p * still_running + new_halted * remainders  # [B, S]
+
+            # apply transformation on the state
+            state, _ = fn(state, self_attention_mask)  # [B, S, HDD]
+
+            # update running part in the weighted state and keep the rest
+            previous_state = ((state * K.expand_dims(update_weights, axis=-1)) + (
+                    previous_state * (1 - K.expand_dims(update_weights, axis=-1))))
+            '''
+            previous_state is actually the new_state at end of hte loop
+            to save a line I assigned to previous_state so in the next
+            iteration is correct. Notice that indeed we return previous_state
+            '''
+            step += 1
+
+        return previous_state, remainders, n_updates
 
 
 class EncoderLayer:
@@ -264,6 +379,60 @@ class Encoder:
             attentions.append(attention)
 
         return output, attentions
+
+
+class UniversalEncoder:
+
+    def __init__(self,
+                 embedding_size,
+                 max_seq_len,
+                 num_layers=6,
+                 num_heads=8,
+                 model_dim=512,
+                 ffn_dim=2048,
+                 input_dropout=0.0,
+                 layer_dropout=0.0,
+                 act=False):
+        self.seq_embedding = Embedding(max_seq_len + 1, embedding_size)
+        self.timing_signal = gen_timing_signal(max_seq_len, model_dim)
+        self.position_signal = gen_timing_signal(num_layers, model_dim)
+        self.enc = EncoderLayer(model_dim, num_heads, ffn_dim, layer_dropout)
+        self.act = act
+        self.num_layers = num_layers
+        self.input_droput = Dropout(input_dropout)
+
+        self.proj_flag = False
+        if embedding_size != model_dim:
+            self.embedding_proj = Dense(model_dim, use_bias=False)
+            self.proj_flag = True
+
+        if act:
+            self.act_fn = ACT(self.timing_signal, self.position_signal, num_layers, self.enc)
+
+    def __call__(self, inputs):
+        """
+
+        :param inputs: [B, S]
+        :return: a tensor of shape [B, S, model_dim]
+        """
+        inputs_len = K.shape(inputs)[1]
+
+        self_attention_mask = Lambda(lambda x: padding_mask(x, x))(inputs)  # [B, S, S]
+
+        x = self.seq_embedding(inputs)
+        x = self.input_droput(x)
+
+        if self.proj_flag:
+            x = self.embedding_proj(x)  # [B, S, model_dim]
+
+        if self.act:
+            x, remainders, n_updates = self.act_fn(x, self_attention_mask)
+            return x, remainders, n_updates
+
+        for l in range(self.num_layers):
+            x += self.timing_signal[:, :inputs_len, :] + K.expand_dims(self.position_signal[:, l, :], axis=1)
+            x, _ = self.enc(x, self_attention_mask)
+        return x, None, None
 
 
 class DecoderLayer:
@@ -338,21 +507,3 @@ class Decoder:
             context_attentions.append(context_attn)
 
         return output, self_attentions, context_attentions
-
-
-def _get_loss(args):
-    y_pred, y_true = args
-    y_true = tf.cast(y_true, 'int32')
-    loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y_true, logits=y_pred)
-    mask = tf.cast(tf.not_equal(y_true, 0), 'float32')
-    loss = tf.reduce_sum(loss * mask, -1) / tf.reduce_sum(mask, -1)
-    loss = K.mean(loss)
-    return loss
-
-
-def _get_accuracy(args):
-    y_pred, y_true = args
-    mask = tf.cast(tf.not_equal(y_true, 0), 'float32')
-    corr = K.cast(K.equal(K.cast(y_true, 'int32'), K.cast(K.argmax(y_pred, axis=-1), 'int32')), 'float32')
-    corr = K.sum(corr * mask, -1) / K.sum(mask, -1)
-    return K.mean(corr)
