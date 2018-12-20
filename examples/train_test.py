@@ -16,11 +16,12 @@ if __name__ == '__main__':
     tgt_dict_path = "../data/tgt_dict.json"  # 目标字典路径
     batch_size = 32
     epochs = 128
-    num_gpu = 4
+    num_gpu = 1
+    max_seq_len = 350
 
     data_loader = DataLoader(src_dict_path=src_dict_path,
                              tgt_dict_path=tgt_dict_path,
-                             max_len=350,
+                             max_len=max_seq_len,
                              batch_size=batch_size,
                              sparse_target=False)
 
@@ -34,7 +35,7 @@ if __name__ == '__main__':
     config = {
         'src_vocab_size': data_loader.src_vocab_size,
         'tgt_vocab_size': data_loader.tgt_vocab_size,
-        'max_seq_len': 350,
+        'max_seq_len': max_seq_len,
         'max_depth': 8,
         'input_embedding_size': 256,
         'residual_dropout': 0.2,
@@ -72,7 +73,7 @@ if __name__ == '__main__':
 
     # Use LRFinder to find effective learning rate
     lr_finder = LRFinder(1e-6, 1e-2, steps_per_epoch, epochs=1)  # => (2e-4, 3e-4)
-    lr_scheduler = LRSchedulerPerStep(segmenter.model_dim)
+    lr_scheduler = LRSchedulerPerStep(segmenter.input_embedding_size)
     # lr_scheduler = SGDRScheduler(min_lr=5e-4, max_lr=1e-3, steps_per_epoch=steps_per_epoch,
     #                              cycle_length=10,
     #                              lr_decay=0.87,
