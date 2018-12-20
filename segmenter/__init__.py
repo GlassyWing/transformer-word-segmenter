@@ -188,8 +188,8 @@ class TFSegmenter:
         return ret
 
     def _seq_to_matrix(self, sequences):
-        max_len = len(max(sequences, key=len))
-        return pad_sequences(sequences, maxlen=max_len, padding="post")
+        # max_len = len(max(sequences, key=len))
+        return pad_sequences(sequences, maxlen=self.max_seq_len, padding="post")
 
     def get_config(self):
         return {
