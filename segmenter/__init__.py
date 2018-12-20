@@ -32,7 +32,7 @@ class TFSegmenter:
                  src_vocab_size,
                  tgt_vocab_size,
                  max_seq_len,
-                 input_embedding_size=256,
+                 model_dim=256,
                  max_depth=8,
                  num_heads=8,
                  residual_dropout=0.0,
@@ -51,6 +51,7 @@ class TFSegmenter:
         :param src_vocab_size: 源词汇量大小
         :param tgt_vocab_size: 标签词汇量大小
         :param max_seq_len: 最大句子长度
+        :param model_dim:   输入大小
         :param num_heads:   多头注意力头数
         :param use_crf:     是否使用随机向量场层作为最后的输出
         :param optimizer:   优化函数
@@ -69,7 +70,7 @@ class TFSegmenter:
         self.num_heads = num_heads
         self.max_depth = max_depth
         self.num_gpu = num_gpu
-        self.input_embedding_size = input_embedding_size
+        self.model_dim = model_dim
         self.residual_dropout = residual_dropout
         self.attention_dropout = attention_dropout
         self.use_masking = use_masking
@@ -88,9 +89,11 @@ class TFSegmenter:
                 print("Fail to load weights, create a new model!")
 
     def __build_model(self):
+        assert self.max_depth >= 1, "The parameter max_depth is at least 1"
+
         src_seq_input = Input(shape=(self.max_seq_len,), dtype="int32", name="src_seq_input")
 
-        src_seq_embed = Embedding(self.src_vocab_size + 1, self.input_embedding_size)(src_seq_input)
+        src_seq_embed = Embedding(self.src_vocab_size + 1, self.model_dim)(src_seq_input)
 
         transformer_block = TransformerBlock(
             name='transformer',
@@ -110,13 +113,12 @@ class TFSegmenter:
             next_input = add_coordinate_embedding(next_input, step=step)
             next_input = transformer_block(next_input)
             next_input, act_weighted_output = act_layer(next_input)
-
         act_layer.finalize()
 
         if self.use_crf:
-            y_pred = self.crf(next_input)
+            y_pred = self.crf(act_weighted_output)
         else:
-            y_pred = self.linear(next_input)
+            y_pred = self.linear(act_weighted_output)
 
         model = Model(src_seq_input, y_pred)
         parallel_model = model
@@ -197,7 +199,7 @@ class TFSegmenter:
             'tgt_vocab_size': self.tgt_vocab_size,
             'max_seq_len': self.max_seq_len,
             'max_depth': self.max_depth,
-            'input_embedding_size': self.input_embedding_size,
+            'model_dim': self.model_dim,
             'residual_dropout': self.residual_dropout,
             'attention_dropout': self.attention_dropout,
             'compression_window_size': self.compression_window_size,
