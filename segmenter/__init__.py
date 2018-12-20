@@ -15,7 +15,7 @@ from keras_preprocessing.text import Tokenizer
 from keras_transformer.position import TransformerCoordinateEmbedding
 from keras_transformer.transformer import TransformerBlock, TransformerACT
 
-from segmenter.tools import load_dictionary
+from segmenter.utils import load_dictionary
 
 
 def smoothing_loss(y_true, y_pred):

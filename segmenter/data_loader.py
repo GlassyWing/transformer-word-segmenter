@@ -3,7 +3,7 @@ import os
 from keras.preprocessing.sequence import pad_sequences
 from keras.utils import to_categorical
 
-from segmenter.tools import load_dictionary
+from segmenter.utils import load_dictionary
 
 
 class DataLoader:
