@@ -1,20 +1,16 @@
-from keras.callbacks import ModelCheckpoint, TensorBoard
+from keras.callbacks import TensorBoard
 from keras.optimizers import Adam
 
-from custom.callbacks import LRFinder, SGDRScheduler, LRSchedulerPerStep, SingleModelCK
+from custom.callbacks import LRFinder, LRSchedulerPerStep, SingleModelCK
 from segmenter import get_or_create, save_config
 from segmenter.data_loader import DataLoader
-
-import keras.backend as K
-
-from segmenter.utils import get_session
 
 if __name__ == '__main__':
     train_file_path = "../data/2014/training"  # 训练文件目录
     valid_file_path = "../data/2014/valid"  # 验证文件目录
     config_save_path = "../data/default-config.json"  # 模型配置路径
     weights_save_path = "../models/weights.{epoch:02d}-{val_loss:.2f}.h5"  # 模型权重保存路径
-    init_weights_path = "../models/weights.03-0.95.h5"  # 预训练模型权重文件路径
+    init_weights_path = "../models/weights.35-0.06.h5"  # 预训练模型权重文件路径
 
     src_dict_path = "../data/src_dict.json"  # 源字典路径
     tgt_dict_path = "../data/tgt_dict.json"  # 目标字典路径
@@ -24,7 +20,7 @@ if __name__ == '__main__':
 
     data_loader = DataLoader(src_dict_path=src_dict_path,
                              tgt_dict_path=tgt_dict_path,
-                             max_len=600,
+                             max_len=350,
                              batch_size=batch_size,
                              sparse_target=False)
 
@@ -38,15 +34,18 @@ if __name__ == '__main__':
     config = {
         'src_vocab_size': data_loader.src_vocab_size,
         'tgt_vocab_size': data_loader.tgt_vocab_size,
-        'max_seq_len': 600,
-        'num_layers': 2,
-        'model_dim': 256,
+        'max_seq_len': 350,
+        'max_depth': 8,
+        'input_embedding_size': 256,
+        'residual_dropout': 0.2,
+        'attention_dropout': 0.1,
+        'compression_window_size': None,
+        'use_masking': True,
         'num_heads': 8,
-        'ffn_dim': 512,
-        'dropout': 0.2
+        'use_crf': False
     }
 
-    K.set_session(get_session(0.9))
+    # K.set_session(get_session(0.9))
 
     segmenter = get_or_create(config,
                               optimizer=Adam(1e-3, beta_1=0.9, beta_2=0.98, epsilon=1e-9),
