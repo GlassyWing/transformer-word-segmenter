@@ -5,16 +5,17 @@ from concurrent.futures import ThreadPoolExecutor
 import keras.backend as K
 import numpy as np
 from keras import Input, Model
-from keras.layers import Dense
+from keras.layers import Dense, Embedding
 from keras.losses import categorical_crossentropy
 from keras.optimizers import Adam
 from keras.utils import multi_gpu_model
 from keras_contrib.layers import CRF
 from keras_preprocessing.sequence import pad_sequences
 from keras_preprocessing.text import Tokenizer
+from keras_transformer.position import TransformerCoordinateEmbedding
+from keras_transformer.transformer import TransformerBlock, TransformerACT
 
 from segmenter.tools import load_dictionary
-from transformer.core import Encoder
 
 
 def smoothing_loss(y_true, y_pred):
@@ -31,11 +32,13 @@ class TFSegmenter:
                  src_vocab_size,
                  tgt_vocab_size,
                  max_seq_len,
-                 num_layers=6,
-                 model_dim=512,
+                 input_embedding_size=256,
+                 max_depth=8,
                  num_heads=8,
-                 ffn_dim=2048,
-                 dropout=0.0,
+                 residual_dropout=0.0,
+                 attention_dropout=0.0,
+                 compression_window_size: int = None,
+                 use_masking: bool = True,
                  use_crf=True,
                  optimizer=Adam(),
                  src_tokenizer: Tokenizer = None,
@@ -48,11 +51,7 @@ class TFSegmenter:
         :param src_vocab_size: 源词汇量大小
         :param tgt_vocab_size: 标签词汇量大小
         :param max_seq_len: 最大句子长度
-        :param num_layers:  编码器层数
-        :param model_dim:   编码器隐层单元数
-        :param num_heads:   头数
-        :param ffn_dim:
-        :param dropout:     每阶段后的随机失活率
+        :param num_heads:   多头注意力头数
         :param use_crf:     是否使用随机向量场层作为最后的输出
         :param optimizer:   优化函数
         :param src_tokenizer:   源字典
@@ -67,16 +66,18 @@ class TFSegmenter:
         self.src_vocab_size = src_vocab_size
         self.tgt_vocab_size = tgt_vocab_size
         self.max_seq_len = max_seq_len
-        self.num_layers = num_layers
-        self.model_dim = model_dim
         self.num_heads = num_heads
-        self.ffn_dim = ffn_dim
-        self.dropout = dropout
+        self.max_depth = max_depth
         self.num_gpu = num_gpu
+        self.input_embedding_size = input_embedding_size
+        self.residual_dropout = residual_dropout
+        self.attention_dropout = attention_dropout
+        self.use_masking = use_masking
+        self.compression_window_size = compression_window_size
         self.use_crf = use_crf
-        self.encoder = Encoder(src_vocab_size, max_seq_len, num_layers, model_dim, num_heads, ffn_dim, dropout)
         self.linear = Dense(tgt_vocab_size + 1, use_bias=False, activation="softmax")
         self.crf = CRF(tgt_vocab_size + 1, sparse_target=False)
+
         self.model, self.parallel_model = self.__build_model()
 
         if weights_path is not None:
@@ -87,14 +88,35 @@ class TFSegmenter:
                 print("Fail to load weights, create a new model!")
 
     def __build_model(self):
-        src_seq_input = Input(shape=(None,), dtype="int32", name="src_seq_input")
+        src_seq_input = Input(shape=(self.max_seq_len,), dtype="int32", name="src_seq_input")
 
-        enc_output, _ = self.encoder(src_seq_input)
+        src_seq_embed = Embedding(self.src_vocab_size + 1, self.input_embedding_size)(src_seq_input)
+
+        transformer_block = TransformerBlock(
+            name='transformer',
+            num_heads=self.num_heads,
+            residual_dropout=self.residual_dropout,
+            attention_dropout=self.attention_dropout,
+            use_masking=self.use_masking)
+
+        add_coordinate_embedding = TransformerCoordinateEmbedding(
+            self.max_depth,
+            name='coordinate_embedding')
+
+        act_layer = TransformerACT()
+
+        next_input = src_seq_embed
+        for step in range(self.max_depth):
+            next_input = add_coordinate_embedding(next_input, step=step)
+            next_input = transformer_block(next_input)
+            next_input, act_weighted_output = act_layer(next_input)
+
+        act_layer.finalize()
 
         if self.use_crf:
-            y_pred = self.crf(enc_output)
+            y_pred = self.crf(next_input)
         else:
-            y_pred = self.linear(enc_output)
+            y_pred = self.linear(next_input)
 
         model = Model(src_seq_input, y_pred)
         parallel_model = model
@@ -174,11 +196,13 @@ class TFSegmenter:
             'src_vocab_size': self.src_vocab_size,
             'tgt_vocab_size': self.tgt_vocab_size,
             'max_seq_len': self.max_seq_len,
-            'num_layers': self.num_layers,
-            'model_dim': self.model_dim,
+            'max_depth': self.max_depth,
+            'input_embedding_size': self.input_embedding_size,
+            'residual_dropout': self.residual_dropout,
+            'attention_dropout': self.attention_dropout,
+            'compression_window_size': self.compression_window_size,
+            'use_masking': self.use_masking,
             'num_heads': self.num_heads,
-            'ffn_dim': self.ffn_dim,
-            'dropout': self.dropout,
             'use_crf': self.use_crf
         }
 
@@ -219,7 +243,3 @@ get_or_create = TFSegmenter.get_or_create
 def save_config(obj, config_path, encoding="utf-8"):
     with open(config_path, mode="w+", encoding=encoding) as file:
         json.dump(obj.get_config(), file)
-
-
-if __name__ == '__main__':
-    TFSegmenter(10, 10, 100, num_layers=2, num_heads=1).model.summary(line_length=120)
