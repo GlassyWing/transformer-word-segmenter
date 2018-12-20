@@ -1,7 +1,7 @@
 from keras.callbacks import TensorBoard
 from keras.optimizers import Adam
 
-from custom.callbacks import LRFinder, LRSchedulerPerStep, SingleModelCK
+from segmenter.custom.callbacks import LRFinder, LRSchedulerPerStep, SingleModelCK
 from segmenter import get_or_create, save_config
 from segmenter.data_loader import DataLoader
 

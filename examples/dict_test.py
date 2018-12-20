@@ -1,4 +1,4 @@
-from segmenter.tools import make_dictionaries, load_dictionaries
+from segmenter.utils import make_dictionaries, load_dictionaries
 
 if __name__ == '__main__':
     # make_dictionaries("../data/2014",
