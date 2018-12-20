@@ -13,6 +13,7 @@ class DataLoader:
                  tgt_dict_path,
                  batch_size=64,
                  max_len=999,
+                 fix_len=True,
                  word_delimiter=' ',
                  sent_delimiter='\t',
                  encoding="utf-8",
@@ -21,6 +22,7 @@ class DataLoader:
         self.tgt_tokenizer = load_dictionary(tgt_dict_path, encoding)
         self.batch_size = batch_size
         self.max_len = max_len
+        self.fix_len = fix_len
         self.word_delimiter = word_delimiter
         self.sent_delimiter = sent_delimiter
         self.src_vocab_size = self.src_tokenizer.num_words
@@ -61,8 +63,12 @@ class DataLoader:
                     sent, chunk = [], []
 
     def _pad_seq(self, sent, chunk):
-        len_sent = min(len(max(sent, key=len)), self.max_len)
-        len_chunk = min(len(max(chunk, key=len)), self.max_len)
-        sent = pad_sequences(sent, maxlen=len_sent, padding='post')
-        chunk = pad_sequences(chunk, maxlen=len_chunk, padding='post')
+        if not self.fix_len:
+            len_sent = min(len(max(sent, key=len)), self.max_len)
+            len_chunk = min(len(max(chunk, key=len)), self.max_len)
+            sent = pad_sequences(sent, maxlen=len_sent, padding='post')
+            chunk = pad_sequences(chunk, maxlen=len_chunk, padding='post')
+        else:
+            sent = pad_sequences(sent, maxlen=self.max_len, padding='post')
+            chunk = pad_sequences(chunk, maxlen=self.max_len, padding='post')
         return sent, chunk
