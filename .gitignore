@@ -4,3 +4,5 @@ data/
 logs/
 models/
 ./*.py
+*.egg-info/
+dist/
