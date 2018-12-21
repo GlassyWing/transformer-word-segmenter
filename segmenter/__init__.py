@@ -143,7 +143,7 @@ class TFSegmenter:
         output = np.argmax(output, axis=2)
         return self.tgt_tokenizer.sequences_to_texts(output)
 
-    def _single_decode(self, args):
+    def _single_decode(self, args, noun_conjoin=True):
         sent, tag = args
         cur_sent, cur_tag = [], []
         tag = tag.split(' ')
@@ -177,9 +177,42 @@ class TFSegmenter:
             cur_sent.append(''.join(t1))
             cur_tag.append(pre_pos)
 
+        if noun_conjoin:
+            return self.__noun_conjoin(cur_sent, cur_tag)
         return cur_sent, cur_tag
 
-    def decode_texts(self, texts):
+    def __noun_conjoin(self, sent, tags):
+        ret_sent = []
+        ret_tags = []
+        pre_word = None
+        pre_tag = None
+        for word, tag in zip(sent, tags):
+            if tag == 'vn':
+                if pre_word is not None:
+                    ret_sent.append(pre_word)
+                    ret_tags.append(pre_tag)
+                pre_word = word
+                pre_tag = tag
+                continue
+            elif tag == 'n':
+                if pre_word is not None:
+                    pre_word += word
+                    pre_tag = tag
+                else:
+                    ret_sent.append(word)
+                    ret_tags.append(tag)
+            else:
+                if pre_word is not None:
+                    ret_sent.append(pre_word)
+                    ret_tags.append(pre_tag)
+                    pre_word = None
+                    pre_tag = None
+                ret_sent.append(word)
+                ret_tags.append(tag)
+
+        return ret_sent, ret_tags
+
+    def decode_texts(self, texts, noun_conjoin=True):
         sents = []
         with ThreadPoolExecutor() as executor:
             for text in executor.map(lambda x: list(re.subn("\s+", "", x)[0]), texts):
@@ -189,7 +222,8 @@ class TFSegmenter:
 
         ret = []
         with ThreadPoolExecutor() as executor:
-            for cur_sent, cur_tag in executor.map(self._single_decode, zip(sents, tags)):
+            for cur_sent, cur_tag in executor.map(lambda x: self._single_decode(x, noun_conjoin),
+                                                  zip(sents, tags)):
                 ret.append((cur_sent, cur_tag))
 
         return ret
