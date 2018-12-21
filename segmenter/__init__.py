@@ -18,7 +18,7 @@ from keras_transformer.transformer import TransformerBlock, TransformerACT
 from segmenter.utils import load_dictionary
 
 
-def smoothing_loss(y_true, y_pred):
+def label_smoothing_loss(y_true, y_pred):
     shape = K.int_shape(y_pred)
     n_class = shape[2]
     eps = 0.1
@@ -40,6 +40,7 @@ class TFSegmenter:
                  compression_window_size: int = None,
                  use_masking: bool = True,
                  use_crf=True,
+                 label_smooth=False,
                  optimizer=Adam(),
                  src_tokenizer: Tokenizer = None,
                  tgt_tokenizer: Tokenizer = None,
@@ -69,6 +70,7 @@ class TFSegmenter:
         self.max_seq_len = max_seq_len
         self.num_heads = num_heads
         self.max_depth = max_depth
+        self.label_smooth = label_smooth
         self.num_gpu = num_gpu
         self.model_dim = model_dim
         self.residual_dropout = residual_dropout
@@ -128,7 +130,10 @@ class TFSegmenter:
         if self.use_crf:
             parallel_model.compile(self.optimizer, loss=self.crf.loss_function, metrics=[self.crf.accuracy])
         else:
-            parallel_model.compile(optimizer=self.optimizer, loss=smoothing_loss, metrics=['accuracy'])
+            if self.label_smooth:
+                parallel_model.compile(optimizer=self.optimizer, loss=label_smoothing_loss, metrics=['accuracy'])
+            else:
+                parallel_model.compile(optimizer=self.optimizer, loss=categorical_crossentropy, metrics=['accuracy'])
 
         return model, parallel_model
 
@@ -177,7 +182,7 @@ class TFSegmenter:
     def decode_texts(self, texts):
         sents = []
         with ThreadPoolExecutor() as executor:
-            for text in executor.map(lambda x: list(re.subn("\s+", "-", x)[0]), texts):
+            for text in executor.map(lambda x: list(re.subn("\s+", "", x)[0]), texts):
                 sents.append(text)
         sequences = self.src_tokenizer.texts_to_sequences(sents)
         tags = self.decode_sequences(sequences)
@@ -205,7 +210,8 @@ class TFSegmenter:
             'compression_window_size': self.compression_window_size,
             'use_masking': self.use_masking,
             'num_heads': self.num_heads,
-            'use_crf': self.use_crf
+            'use_crf': self.use_crf,
+            'label_smooth': self.label_smooth
         }
 
     __singleton = None
