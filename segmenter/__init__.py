@@ -141,14 +141,13 @@ class TFSegmenter:
         if self.num_gpu > 1:
             parallel_model = multi_gpu_model(model, gpus=self.num_gpu)
 
-        confidence_penalty = K.mean(
-            self.confidence_penalty_weight *
-            K.sum(y_pred * K.log(y_pred), axis=-1))
-        model.add_loss(confidence_penalty)
-
         if self.use_crf:
             parallel_model.compile(self.optimizer, loss=crf.loss_function, metrics=[crf.accuracy])
         else:
+            confidence_penalty = K.mean(
+                self.confidence_penalty_weight *
+                K.sum(y_pred * K.log(y_pred), axis=-1))
+            model.add_loss(confidence_penalty)
             if self.label_smooth:
                 parallel_model.compile(optimizer=self.optimizer, loss=label_smoothing_loss, metrics=['accuracy'])
             else:
