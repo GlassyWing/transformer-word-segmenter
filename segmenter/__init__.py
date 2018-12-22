@@ -4,8 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import keras.backend as K
 import numpy as np
-from keras import Input, Model
-from keras.layers import Dense, Embedding
+from keras import Input, Model, regularizers
+from keras.layers import Dense, Embedding, Softmax
 from keras.losses import categorical_crossentropy
 from keras.optimizers import Adam
 from keras.utils import multi_gpu_model
@@ -29,23 +29,25 @@ def label_smoothing_loss(y_true, y_pred):
 class TFSegmenter:
 
     def __init__(self,
-                 src_vocab_size,
-                 tgt_vocab_size,
-                 max_seq_len,
-                 model_dim=256,
-                 max_depth=8,
-                 num_heads=8,
-                 residual_dropout=0.0,
-                 attention_dropout=0.0,
+                 src_vocab_size: int,
+                 tgt_vocab_size: int,
+                 max_seq_len: int,
+                 model_dim: int = 256,
+                 max_depth: int = 8,
+                 num_heads: int = 8,
+                 residual_dropout: float = 0.0,
+                 attention_dropout: float = 0.0,
+                 confidence_penalty_weight: float = 0.1,
+                 l2_reg_penalty: float = 1e-6,
                  compression_window_size: int = None,
                  use_masking: bool = True,
-                 use_crf=True,
-                 label_smooth=False,
+                 use_crf: bool = True,
+                 label_smooth: bool = False,
                  optimizer=Adam(),
                  src_tokenizer: Tokenizer = None,
                  tgt_tokenizer: Tokenizer = None,
                  weights_path=None,
-                 num_gpu=1):
+                 num_gpu: int = 1):
 
         """
 
@@ -75,11 +77,11 @@ class TFSegmenter:
         self.model_dim = model_dim
         self.residual_dropout = residual_dropout
         self.attention_dropout = attention_dropout
+        self.confidence_penalty_weight = confidence_penalty_weight
+        self.l2_reg_penalty = l2_reg_penalty
         self.use_masking = use_masking
         self.compression_window_size = compression_window_size
         self.use_crf = use_crf
-        self.linear = Dense(tgt_vocab_size + 1, use_bias=False, activation="softmax")
-        self.crf = CRF(tgt_vocab_size + 1, sparse_target=False)
 
         self.model, self.parallel_model = self.__build_model()
 
@@ -95,7 +97,18 @@ class TFSegmenter:
 
         src_seq_input = Input(shape=(self.max_seq_len,), dtype="int32", name="src_seq_input")
 
-        src_seq_embed = Embedding(self.src_vocab_size + 1, self.model_dim)(src_seq_input)
+        embedding_layer = Embedding(self.src_vocab_size + 1, self.model_dim, input_length=self.max_seq_len,
+                                    name='bpe_embeddings')
+
+        output_layer = Dense(self.tgt_vocab_size + 1,
+                             kernel_regularizer=regularizers.l2(self.l2_reg_penalty),
+                             name='outpu_layer')
+
+        coordinate_embedding_layer = TransformerCoordinateEmbedding(
+            self.max_depth,
+            name='coordinate_embedding')
+
+        transformer_act_layer = TransformerACT(name='adaptive_computation_time')
 
         transformer_block = TransformerBlock(
             name='transformer',
@@ -104,31 +117,37 @@ class TFSegmenter:
             attention_dropout=self.attention_dropout,
             use_masking=self.use_masking)
 
-        add_coordinate_embedding = TransformerCoordinateEmbedding(
-            self.max_depth,
-            name='coordinate_embedding')
+        output_softmax_layer = Softmax(name="word_predictions")
 
-        act_layer = TransformerACT()
+        next_step_input = embedding_layer(src_seq_input)
+        act_output = next_step_input
 
-        next_input = src_seq_embed
         for step in range(self.max_depth):
-            next_input = add_coordinate_embedding(next_input, step=step)
-            next_input = transformer_block(next_input)
-            next_input, act_weighted_output = act_layer(next_input)
-        act_layer.finalize()
+            next_step_input = coordinate_embedding_layer(next_step_input, step=step)
+            next_step_input = transformer_block(next_step_input)
+            next_step_input, act_output = transformer_act_layer(next_step_input)
+            transformer_act_layer.finalize()
+
+        next_step_input = act_output
 
         if self.use_crf:
-            y_pred = self.crf(act_weighted_output)
+            crf = CRF(self.tgt_vocab_size + 1, sparse_target=False)
+            y_pred = crf(output_layer(next_step_input))
         else:
-            y_pred = self.linear(act_weighted_output)
+            y_pred = output_softmax_layer(output_layer(next_step_input))
 
-        model = Model(src_seq_input, y_pred)
+        model = Model(inputs=[src_seq_input], outputs=[y_pred])
         parallel_model = model
         if self.num_gpu > 1:
             parallel_model = multi_gpu_model(model, gpus=self.num_gpu)
 
+        confidence_penalty = K.mean(
+            self.confidence_penalty_weight *
+            K.sum(y_pred * K.log(y_pred), axis=-1))
+        model.add_loss(confidence_penalty)
+
         if self.use_crf:
-            parallel_model.compile(self.optimizer, loss=self.crf.loss_function, metrics=[self.crf.accuracy])
+            parallel_model.compile(self.optimizer, loss=crf.loss_function, metrics=[crf.accuracy])
         else:
             if self.label_smooth:
                 parallel_model.compile(optimizer=self.optimizer, loss=label_smoothing_loss, metrics=['accuracy'])
@@ -239,6 +258,8 @@ class TFSegmenter:
             'max_seq_len': self.max_seq_len,
             'max_depth': self.max_depth,
             'model_dim': self.model_dim,
+            'confidence_penalty_weight': self.confidence_penalty_weight,
+            'l2_reg_penalty': self.l2_reg_penalty,
             'residual_dropout': self.residual_dropout,
             'attention_dropout': self.attention_dropout,
             'compression_window_size': self.compression_window_size,
