@@ -5,7 +5,7 @@ import numpy as np
 from keras.preprocessing.sequence import pad_sequences
 from keras.utils import to_categorical
 
-from segmenter.utils import load_dictionary
+from tf_segmenter.utils import load_dictionary
 
 
 class DataLoader:
