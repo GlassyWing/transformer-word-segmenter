@@ -64,7 +64,7 @@ if __name__ == '__main__':
                        save_weights_only=True,
                        monitor='val_loss',
                        verbose=0)
-    log = TensorBoard(log_dir='logs',
+    log = TensorBoard(log_dir='../logs',
                       histogram_freq=0,
                       batch_size=data_loader.batch_size,
                       write_graph=True,
