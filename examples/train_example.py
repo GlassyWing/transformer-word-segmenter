@@ -1,9 +1,9 @@
 from keras.callbacks import TensorBoard
 from keras.optimizers import Adam
 
-from segmenter.custom.callbacks import LRFinder, LRSchedulerPerStep, SingleModelCK, SGDRScheduler
-from segmenter import get_or_create, save_config
-from segmenter.data_loader import DataLoader
+from tf_segmenter.custom.callbacks import LRFinder, LRSchedulerPerStep, SingleModelCK, SGDRScheduler
+from tf_segmenter import get_or_create, save_config
+from tf_segmenter.data_loader import DataLoader
 
 if __name__ == '__main__':
     h5_file_path = "../data/2014_processed.h5"  # data path

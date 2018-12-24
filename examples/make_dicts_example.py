@@ -1,4 +1,4 @@
-from segmenter.utils import make_dictionaries
+from tf_segmenter.utils import make_dictionaries
 
 if __name__ == '__main__':
     make_dictionaries("../data/2014",

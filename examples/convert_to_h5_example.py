@@ -1,4 +1,4 @@
-from segmenter.data_loader import DataLoader
+from tf_segmenter.data_loader import DataLoader
 
 if __name__ == '__main__':
     data_loader = DataLoader("../data/src_dict.json", "../data/tgt_dict.json",

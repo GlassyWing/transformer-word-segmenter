@@ -1,6 +1,6 @@
 import time
 
-from segmenter import get_or_create, TFSegmenter
+from tf_segmenter import get_or_create, TFSegmenter
 
 if __name__ == '__main__':
     segmenter: TFSegmenter = get_or_create("../data/default-config.json",
