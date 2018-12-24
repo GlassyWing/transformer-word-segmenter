@@ -16,7 +16,7 @@ from keras_preprocessing.text import Tokenizer
 from keras_transformer.position import TransformerCoordinateEmbedding
 from keras_transformer.transformer import TransformerBlock, TransformerACT
 
-from segmenter.utils import load_dictionary
+from tf_segmenter.utils import load_dictionary
 
 
 def label_smoothing_loss(y_true, y_pred):
