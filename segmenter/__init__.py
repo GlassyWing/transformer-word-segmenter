@@ -1,6 +1,7 @@
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor
+from multiprocessing import Lock
 
 import keras.backend as K
 import numpy as np
@@ -161,7 +162,7 @@ class TFSegmenter:
         output = np.argmax(output, axis=2)
         return self.tgt_tokenizer.sequences_to_texts(output)
 
-    def _single_decode(self, args, noun_conjoin=True):
+    def _single_decode(self, args):
         sent, tag = args
         cur_sent, cur_tag = [], []
         tag = tag.split(' ')
@@ -195,42 +196,9 @@ class TFSegmenter:
             cur_sent.append(''.join(t1))
             cur_tag.append(pre_pos)
 
-        if noun_conjoin:
-            return self.__noun_conjoin(cur_sent, cur_tag)
         return cur_sent, cur_tag
 
-    def __noun_conjoin(self, sent, tags):
-        ret_sent = []
-        ret_tags = []
-        pre_word = None
-        pre_tag = None
-        for word, tag in zip(sent, tags):
-            if tag == 'vn':
-                if pre_word is not None:
-                    ret_sent.append(pre_word)
-                    ret_tags.append(pre_tag)
-                pre_word = word
-                pre_tag = tag
-                continue
-            elif tag == 'n':
-                if pre_word is not None:
-                    pre_word += word
-                    pre_tag = tag
-                else:
-                    ret_sent.append(word)
-                    ret_tags.append(tag)
-            else:
-                if pre_word is not None:
-                    ret_sent.append(pre_word)
-                    ret_tags.append(pre_tag)
-                    pre_word = None
-                    pre_tag = None
-                ret_sent.append(word)
-                ret_tags.append(tag)
-
-        return ret_sent, ret_tags
-
-    def decode_texts(self, texts, noun_conjoin=True):
+    def decode_texts(self, texts):
         sents = []
         with ThreadPoolExecutor() as executor:
             for text in executor.map(lambda x: list(re.subn("\s+", "", x)[0]), texts):
@@ -240,7 +208,7 @@ class TFSegmenter:
 
         ret = []
         with ThreadPoolExecutor() as executor:
-            for cur_sent, cur_tag in executor.map(lambda x: self._single_decode(x, noun_conjoin),
+            for cur_sent, cur_tag in executor.map(self._single_decode,
                                                   zip(sents, tags)):
                 ret.append((cur_sent, cur_tag))
 
@@ -269,6 +237,7 @@ class TFSegmenter:
         }
 
     __singleton = None
+    __lock = Lock()
 
     @staticmethod
     def get_or_create(config, src_dict_path=None,
@@ -277,25 +246,31 @@ class TFSegmenter:
                       num_gpu=1,
                       optimizer=Adam(),
                       encoding="utf-8"):
-        if TFSegmenter.__singleton is None:
-            if type(config) == str:
-                with open(config, encoding=encoding) as file:
-                    config = dict(json.load(file))
-            elif type(config) == dict:
-                config = config
-            else:
-                raise ValueError("Unexpect config type!")
+        TFSegmenter.__lock.acquire()
+        try:
+            if TFSegmenter.__singleton is None:
+                if type(config) == str:
+                    with open(config, encoding=encoding) as file:
+                        config = dict(json.load(file))
+                elif type(config) == dict:
+                    config = config
+                else:
+                    raise ValueError("Unexpect config type!")
 
-            if src_dict_path is not None:
-                src_tokenizer = load_dictionary(src_dict_path, encoding)
-                config['src_tokenizer'] = src_tokenizer
-            if tgt_dict_path is not None:
-                config['tgt_tokenizer'] = load_dictionary(tgt_dict_path, encoding)
+                if src_dict_path is not None:
+                    src_tokenizer = load_dictionary(src_dict_path, encoding)
+                    config['src_tokenizer'] = src_tokenizer
+                if tgt_dict_path is not None:
+                    config['tgt_tokenizer'] = load_dictionary(tgt_dict_path, encoding)
 
-            config["num_gpu"] = num_gpu
-            config['weights_path'] = weights_path
-            config['optimizer'] = optimizer
-            TFSegmenter.__singleton = TFSegmenter(**config)
+                config["num_gpu"] = num_gpu
+                config['weights_path'] = weights_path
+                config['optimizer'] = optimizer
+                TFSegmenter.__singleton = TFSegmenter(**config)
+        except Exception as e:
+            print(e)
+        finally:
+            TFSegmenter.__lock.release()
         return TFSegmenter.__singleton
 
 
