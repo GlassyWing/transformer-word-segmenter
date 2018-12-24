@@ -64,19 +64,22 @@ baidu: https://pan.baidu.com/s/1-LLzKOJglP5W0VCVsI0efg password: krhr
 
 ### Convert dataset format
 
-the data format in dataset as follow is not what we liked.
+The data format in dataset as follow is not what we liked.
 
 > 嫌疑人\n 赵国军\nr 。\w
 
-we convert it by command:
+We convert it by command:
 
 ```python
 python ner_data_preprocess.py <src_dir> 2014_processed -c True
 ```
 
- where `<src_dir>` indicates dataset dir.
+Where `<src_dir>` indicates dataset dir.
 
-now, the data in file `2014_processed` can be seen as follow:
+Now, the data in file `2014_processed` can be seen as follow:
+
+
+
 
 > 嫌 疑 人 赵 国 军 。    B-N I-N I-N B-NR I-NR I-NR S-W
 
