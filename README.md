@@ -74,7 +74,7 @@ We convert it by command:
 python ner_data_preprocess.py <src_dir> 2014_processed -c True
 ```
 
-Where `<src_dir>` indicates dataset dir.
+Where `<src_dir>` indicates training dataset dir, such as `./2014-people/train`.
 
 Now, the data in file `2014_processed` can be seen as follow:
 
@@ -143,6 +143,8 @@ steps_per_epoch = 500
 validation_steps = 50
 ```
 
+The training data is divided into training set and verification set according to the ratio of 8:2.
+
 see more: `examples\train_example.py`
 
 After 128 epochs, the accuracy of the verification set reached 98 %.
@@ -152,7 +154,7 @@ After 128 epochs, the accuracy of the verification set reached 98 %.
     <img src="assets/loss.png">
 </div>
 
-Metrics:
+Test set (`2014-people/test`) evaluation results:
 
 ```python
 result-(epoch:128):
