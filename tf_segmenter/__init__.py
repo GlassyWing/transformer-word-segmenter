@@ -127,7 +127,8 @@ class TFSegmenter:
             next_step_input = coordinate_embedding_layer(next_step_input, step=step)
             next_step_input = transformer_block(next_step_input)
             next_step_input, act_output = transformer_act_layer(next_step_input)
-            transformer_act_layer.finalize()
+
+        transformer_act_layer.finalize()
 
         next_step_input = act_output
 
