@@ -220,10 +220,10 @@ class SGDRScheduler(Callback):
 
 
 class LRSchedulerPerStep(Callback):
-    def __init__(self, d_model, warmup=4000):
+    def __init__(self, d_model, warmup=4000, step_num=0):
         self.basic = d_model ** -0.5
         self.warm = warmup ** -1.5
-        self.step_num = 0
+        self.step_num = step_num
 
     def on_batch_begin(self, batch, logs=None):
         self.step_num += 1
