@@ -17,6 +17,7 @@ from keras_transformer.position import TransformerCoordinateEmbedding
 from keras_transformer.transformer import TransformerBlock, TransformerACT
 
 from tf_segmenter.utils import load_dictionary
+from tf_segmenter.custom.elmo import ELMoEmbedding
 
 
 def label_smoothing_loss(y_true, y_pred):
@@ -98,8 +99,12 @@ class TFSegmenter:
 
         src_seq_input = Input(shape=(self.max_seq_len,), dtype="int32", name="src_seq_input")
 
-        embedding_layer = Embedding(self.src_vocab_size + 1, self.model_dim, input_length=self.max_seq_len,
-                                    name='bpe_embeddings')
+        # embedding_layer = Embedding(self.src_vocab_size + 1, self.model_dim, input_length=self.max_seq_len,
+        #                             name='embeddings')
+
+        embedding_layer = ELMoEmbedding(idx2word=self.src_tokenizer.index_word,
+                                        output_mode='elmo',
+                                        trainable=True)
 
         output_layer = Dense(self.tgt_vocab_size + 1,
                              kernel_regularizer=regularizers.l2(self.l2_reg_penalty),
