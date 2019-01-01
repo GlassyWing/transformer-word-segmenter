@@ -78,7 +78,7 @@ class DataLoader:
                 return X_train, Y_train, X_valid, Y_valid
             return X, Y
 
-    def generator_from_data(self, X, Y, shuffle_batch=100):
+    def generator_from_data(self, X, Y, shuffle_batch=10):
         steps = 0
         total_size = X.shape[0]
         while True:
