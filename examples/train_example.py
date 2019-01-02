@@ -1,5 +1,6 @@
 from keras.callbacks import TensorBoard
 from keras.optimizers import Adam
+import matplotlib.pyplot as plt
 
 from tf_segmenter.custom.callbacks import LRFinder, LRSchedulerPerStep, SingleModelCK, SGDRScheduler
 from tf_segmenter import get_or_create, save_config
@@ -11,16 +12,17 @@ if __name__ == '__main__':
     weights_save_path = "../models/weights.{epoch:02d}-{val_loss:.2f}.h5"  # weights path to save
     init_weights_path = "../models/weights.17-0.07.h5"  # weights path to load
 
-    src_dict_path = "../data/src_dict.json"  # source dict
-    tgt_dict_path = "../data/tgt_dict.json"  # target dict
-    batch_size = 128
-    epochs = 128
-    num_gpu = 4
-    max_seq_len = 256
+    src_dict_path = "../data/src_dict.json"  # 源字典路径
+    tgt_dict_path = "../data/tgt_dict.json"  # 目标字典路径
+    batch_size = 32
+    epochs = 256
+    num_gpu = 1
+    max_seq_len = 150
 
-    # import os
-    #
+    import os
+
     # os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3"
+    # os.environ["TFHUB_CACHE_DIR"] = "E:/data/tfhub"
 
     data_loader = DataLoader(src_dict_path=src_dict_path,
                              tgt_dict_path=tgt_dict_path,
@@ -28,7 +30,7 @@ if __name__ == '__main__':
                              batch_size=batch_size,
                              sparse_target=False)
 
-    steps_per_epoch = 500
+    steps_per_epoch = 1500
     validation_steps = 50
 
     config = {
@@ -36,9 +38,10 @@ if __name__ == '__main__':
         'tgt_vocab_size': data_loader.tgt_vocab_size,
         'max_seq_len': max_seq_len,
         'max_depth': 2,
-        'model_dim': 320,
+        'model_dim': 256,
+        'embedding_dropout': 0.1,
         'residual_dropout': 0.2,
-        'attention_dropout': 0.0,
+        'attention_dropout': 0.1,
         'l2_reg_penalty': 1e-6,
         'confidence_penalty_weight': 0.1,
         'compression_window_size': None,
@@ -47,6 +50,8 @@ if __name__ == '__main__':
         'use_crf': True,
         'label_smooth': True
     }
+
+    # K.set_session(get_session(0.9))
 
     segmenter = get_or_create(config,
                               optimizer=Adam(1e-3, beta_1=0.9, beta_2=0.98, epsilon=1e-9),
@@ -72,7 +77,7 @@ if __name__ == '__main__':
 
     # Use LRFinder to find effective learning rate
     lr_finder = LRFinder(1e-6, 1e-2, steps_per_epoch, epochs=1)  # => (2e-4, 3e-4)
-    lr_scheduler = LRSchedulerPerStep(segmenter.model_dim)
+    lr_scheduler = LRSchedulerPerStep(segmenter.model_dim, warmup=10000)
     # lr_scheduler = SGDRScheduler(min_lr=1e-5, max_lr=1e-4, steps_per_epoch=steps_per_epoch,
     #                              cycle_length=15,
     #                              lr_decay=0.98,
@@ -89,3 +94,4 @@ if __name__ == '__main__':
 
     # lr_finder.plot_lr()
     # lr_finder.plot_loss()
+    # plt.savefig("loss.png")
