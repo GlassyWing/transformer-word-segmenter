@@ -37,6 +37,7 @@ class TFSegmenter:
                  model_dim: int = 256,
                  max_depth: int = 8,
                  num_heads: int = 8,
+                 embedding_size: int = 300,
                  embedding_dropout: float = 0.0,
                  residual_dropout: float = 0.0,
                  attention_dropout: float = 0.0,
@@ -78,6 +79,7 @@ class TFSegmenter:
         self.label_smooth = label_smooth
         self.num_gpu = num_gpu
         self.model_dim = model_dim
+        self.embedding_size = embedding_size
         self.embedding_dropout = embedding_dropout
         self.residual_dropout = residual_dropout
         self.attention_dropout = attention_dropout
@@ -101,12 +103,13 @@ class TFSegmenter:
 
         src_seq_input = Input(shape=(self.max_seq_len,), dtype="int32", name="src_seq_input")
 
-        # embedding_layer = Embedding(self.src_vocab_size + 1, self.model_dim, input_length=self.max_seq_len,
-        #                             name='embeddings')
+        embedding_layer = Embedding(self.src_vocab_size + 1, self.embedding_size,
+                                    input_length=self.max_seq_len,
+                                    name='embeddings')
 
-        embedding_layer = ELMoEmbedding(idx2word=self.src_tokenizer.index_word,
-                                        output_mode='elmo',
-                                        trainable=True)
+        # embedding_layer = ELMoEmbedding(idx2word=self.src_tokenizer.index_word,
+        #                                 output_mode='elmo',
+        #                                 trainable=True)
 
         output_layer = Dense(self.tgt_vocab_size + 1,
                              kernel_regularizer=regularizers.l2(self.l2_reg_penalty),
@@ -233,6 +236,7 @@ class TFSegmenter:
             'max_seq_len': self.max_seq_len,
             'max_depth': self.max_depth,
             'model_dim': self.model_dim,
+            'embedding_size': self.embedding_size,
             'confidence_penalty_weight': self.confidence_penalty_weight,
             'l2_reg_penalty': self.l2_reg_penalty,
             'embedding_dropout': self.embedding_dropout,
