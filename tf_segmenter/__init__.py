@@ -6,7 +6,7 @@ from multiprocessing import Lock
 import keras.backend as K
 import numpy as np
 from keras import Input, Model, regularizers
-from keras.layers import Dense, Embedding, Softmax
+from keras.layers import Dense, Embedding, Softmax, Dropout
 from keras.losses import categorical_crossentropy
 from keras.optimizers import Adam
 from keras.utils import multi_gpu_model
@@ -37,6 +37,7 @@ class TFSegmenter:
                  model_dim: int = 256,
                  max_depth: int = 8,
                  num_heads: int = 8,
+                 embedding_dropout: float = 0.0,
                  residual_dropout: float = 0.0,
                  attention_dropout: float = 0.0,
                  confidence_penalty_weight: float = 0.1,
@@ -77,6 +78,7 @@ class TFSegmenter:
         self.label_smooth = label_smooth
         self.num_gpu = num_gpu
         self.model_dim = model_dim
+        self.embedding_dropout = embedding_dropout
         self.residual_dropout = residual_dropout
         self.attention_dropout = attention_dropout
         self.confidence_penalty_weight = confidence_penalty_weight
@@ -125,7 +127,7 @@ class TFSegmenter:
 
         output_softmax_layer = Softmax(name="word_predictions")
 
-        next_step_input = embedding_layer(src_seq_input)
+        next_step_input = Dropout(self.embedding_dropout)(embedding_layer(src_seq_input))
         act_output = next_step_input
 
         for step in range(self.max_depth):
@@ -233,6 +235,7 @@ class TFSegmenter:
             'model_dim': self.model_dim,
             'confidence_penalty_weight': self.confidence_penalty_weight,
             'l2_reg_penalty': self.l2_reg_penalty,
+            'embedding_dropout': self.embedding_dropout,
             'residual_dropout': self.residual_dropout,
             'attention_dropout': self.attention_dropout,
             'compression_window_size': self.compression_window_size,

@@ -20,6 +20,6 @@ setup(name='transformer-word-segmenter',
 
       zip_safe=False,
 
-      install_requires=['pandas', 'matplotlib', 'keras', 'keras-transformer'],
+      install_requires=['pandas', 'matplotlib', 'keras', 'keras-transformer', 'tensorflow-hub'],
 
       )
