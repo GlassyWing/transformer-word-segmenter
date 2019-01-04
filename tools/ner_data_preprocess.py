@@ -2,8 +2,6 @@ import os
 import re
 import argparse
 
-MAX_LEN_SIZE = 256
-
 def print_process(process):
     num_processed = int(30 * process)
     num_unprocessed = 30 - num_processed
@@ -11,7 +9,7 @@ def print_process(process):
         f"{''.join(['['] + ['='] * num_processed + ['>'] + [' '] * num_unprocessed + [']'])}, {(process * 100):.2f} %")
 
 
-def convert_to_bis(source_dir, target_path, log=False, combine=False):
+def convert_to_bis(source_dir, target_path, log=False, combine=False, single_line=True):
     print("Converting...")
     for root, dirs, files in os.walk(source_dir):
         total = len(files)
@@ -22,26 +20,32 @@ def convert_to_bis(source_dir, target_path, log=False, combine=False):
             file = os.path.join(root, name)
             bises = process_file(file)
             if combine:
-                _save_bises(bises, target_path, write_mode='a')
+                _save_bises(bises, target_path, write_mode='a', single_line=single_line)
             else:
                 os.makedirs(tgt_dir, exist_ok=True)
-                _save_bises(bises, os.path.join(tgt_dir, name))
+                _save_bises(bises, os.path.join(tgt_dir, name), single_line=single_line)
             if log:
                 print_process((index + 1) / total)
     print("All converted")
 
 
-def _save_bises(bises, path, write_mode='w+'):
+def _save_bises(bises, path, write_mode='w+', single_line=True):
     with open(path, mode=write_mode, encoding='UTF-8') as f:
-        for bis in bises:
-            sent, tags = [], []
-            for char, tag in bis:
-                sent.append(char)
-                tags.append(tag)
-            sent = ' '.join(sent)
-            tags = ' '.join(tags)
-            f.write(sent + "\t" + tags)
-            f.write('\n')
+        if single_line:
+            for bis in bises:
+                sent, tags = [], []
+                for char, tag in bis:
+                    sent.append(char)
+                    tags.append(tag)
+                sent = ' '.join(sent)
+                tags = ' '.join(tags)
+                f.write(sent + "\t" + tags)
+                f.write('\n')
+        else:
+            for bis in bises:
+                for char, tag in bis:
+                    f.write(char + "\t" + tag + "\n")
+                f.write("\n")
 
 
 def process_file(file):
@@ -61,7 +65,7 @@ def _parse_text(text: list):
         words = re.split('\s+', line)
 
         if len(words) > MAX_LEN_SIZE:
-            texts = re.split('[。？！.?!]/w', line)
+            texts = re.split('[。？！，.?!,]/w', line)
             if len(min(texts, key=len)) > MAX_LEN_SIZE:
                 continue
             bises.extend(_parse_text(texts))
@@ -124,7 +128,11 @@ if __name__ == '__main__':
     parser.add_argument("corups_dir", type=str, help="指定存放语料库的文件夹，程序将会递归查找目录下的文件。")
     parser.add_argument("output_path", type=str, default='.', help="指定标记好的文件的输出路径。")
     parser.add_argument("-c", "--combine", help="是否组装为一个文件", default=False, type=bool)
+    parser.add_argument("-s", "--single_line", help="是否为单行模式", default=False, type=bool)
     parser.add_argument("--log", help="是否打印进度条", default=False, type=bool)
+    parser.add_argument("--max_len", help="处理后的最大语句长度（将原句子按标点符号断句，若断句后的长度仍比最大长度长，将忽略",
+                        default=150, type=int)
     args = parser.parse_args()
+    MAX_LEN_SIZE = args.max_len
 
-    convert_to_bis(args.corups_dir, args.output_path, args.log, args.combine)
+    convert_to_bis(args.corups_dir, args.output_path, args.log, args.combine, args.single_line)
