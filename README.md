@@ -1,6 +1,6 @@
 # transformer-word-segmenter
 
-This is a sequence labelling model base on [Universal Transformer](https://arxiv.org/abs/1807.03819) which can be used for Chinese word segmentation.
+This is a sequence labelling model base on [Universal Transformer (Encoder)](https://arxiv.org/abs/1807.03819) + Bi-LSTM + CRF which can be used for Chinese word segmentation. The role Universal Transformer (Encoder) plays similar to Elmo Embedding.
 
 ## Install
 
@@ -46,25 +46,16 @@ for sent, tag in segmenter.decode_texts(texts):
 Results:
 
 ```python
-['巴纳德星', '的', '名字', '起源于', '一百', '多年前', '一位',
-'名叫', '爱德华·爱默生·巴纳德', '的', '天文学家', '。',
-'他', '发现', '有', '一颗', '星', '在', '夜空', '中', '划过', '的', '速度', '很快', '，',
-'这', '引起', '了', '他', '极大', '的', '注意', '。']
-['nrf', 'ude1', 'n', 'v', 'm', 'd', 'mq',
-'v', 'nrf', 'ude1', 'nnd', 'w',
-'rr', 'v', 'vyou', 'mq', 'n', 'p', 'n', 'f', 'v', 'ude1', 'n', 'd', 'w',
-'rzv', 'v', 'ule', 'rr', 'a', 'ude1', 'vn', 'w']
+['巴纳德', '星', '的', '名字', '起源于', '一百', '多年前', '一位', '名叫', '爱德华·爱默生·巴纳德', '的', '天文学家', '。', '他', '发现', '有', '一颗', '星', '在', '夜空', '中', '划过', '的', '速度', '很快', '，', '这', '引起', '了', '他', '极大', '的', '注意', '。']
+['nrf', 'n', 'ude1', 'n', 'v', 'm', 'd', 'mq', 'v', 'nrf', 'ude1', 'nnd', 'w', 'rr', 'v', 'vyou', 'mq', 'n', 'p', 'n', 'f', 'v', 'ude1', 'n', 'd', 'w', 'rzv', 'v', 'ule', 'rr', 'a', 'ude1', 'vn', 'w']
 
-['印度尼西亚', '国家', '抗灾署', '此前', '发布', '消息', '证实', '，',
- '印尼', '巽他海峡', '附近', '的', '万丹省',
- '当地时间', '22号', '晚', '遭', '海啸', '袭击', '。']
-['nsf', 'n', 'nz', 't', 'v', 'n', 'v', 'w',
- 'ns', 'ns', 'f', 'ude1', 'ns',
- 'nz', 'mq', 'tg', 'v', 'n', 'vn', 'w']
+['印度尼西亚国家抗灾署', '此前', '发布', '消息', '证实', '，', '印尼巽他海峡', '附近', '的', '万丹省', '当地时间', '22号', '晚', '遭', '海啸', '袭击', '。']
+['nt', 't', 'v', 'n', 'v', 'w', 'ns', 'f', 'ude1', 'ns', 'nz', 'mq', 'tg', 'v', 'n', 'vn', 'w']
+
 
 ```
 
-It can identify words that have never been seen before such as `巽他海峡`、`万丹省` and so on.
+It can also identify PEOPLE, ORG or PLACE such as `印度尼西亚国家抗灾署`、`万丹省` and so on.
 
 config, weigts and dictionaries link:
 
@@ -100,15 +91,7 @@ Now, the data in file `2014_processed` can be seen as follow:
 After data format converted, we expect to make dictionaries:
 
 ```python
-from tf_segmenter.utils import make_dictionaries
-
-if __name__ == '__main__':
-    make_dictionaries("2014_processed",
-                          src_dict_path="../data/src_dict.json",
-                          tgt_dict_path="../data/tgt_dict.json",
-                          filters="\t\n",
-                          oov_token="<UNK>",
-                          min_freq=1)
+python tools/make_dicts.py 2014_processed -s src_dict.json -t tgt_dict.json
 ```
 
 This will generate two file:
@@ -116,13 +99,13 @@ This will generate two file:
 - src_dict.json
 - tgt_dict.json
 
-see more : `examples\make_dicts_example.py`
-
 ### Convert to hdf5 (Optional)
 
 In order to speed up performance, you can convert pure txt `2014_processed` to hdf5 file.
 
-see more : `examples\convert_to_h5_example.py`
+```python
+python tools/convert_to_h5.py 2014_processed 2014_processed.h5 -s src_dict.json -t tgt_dict.json
+```
 
 ## Training Result
 
@@ -132,15 +115,16 @@ The config used as follow:
 {
   "src_vocab_size": 6864,
   "tgt_vocab_size": 259,
-  "max_seq_len": 256,
+  "max_seq_len": 150,
   "max_depth": 2,
-  "model_dim": 256,
+  "model_dim": 128,
+  "lstm_units": 128,
   "confidence_penalty_weight": 0.1,
   "l2_reg_penalty": 1e-06,
-  "residual_dropout": 0.1,
-  "attention_dropout": 0.0,
+  "embedding_dropout": 0.0,
+  "residual_dropout": 0.0,
+  "attention_dropout": 0.1,
   "compression_window_size": null,
-  "use_masking": true,
   "num_heads": 8,
   "use_crf": true,
   "label_smooth": true
@@ -150,16 +134,16 @@ The config used as follow:
 And with:
 
 ```python
-batch_size = 128
-steps_per_epoch = 250
-validation_steps = 25
+batch_size = 32
+steps_per_epoch = 2000
+validation_steps = 20
 ```
 
 The training data is divided into training set and verification set according to the ratio of 8:2.
 
 see more: `examples\train_example.py`
 
-After 128 epochs, the accuracy of the verification set reached 98 %.
+After 32 epochs, the accuracy of the verification set reached 98 %, and the model parameters are only half of the Bi-LSTM+CRF model with the same effect.
 
 <div>
     <img src="assets/accuracy.png">
@@ -169,11 +153,20 @@ After 128 epochs, the accuracy of the verification set reached 98 %.
 Test set (`2014-people/test`) evaluation results for word segmetion:
 
 ```python
-result-(epoch:128):
-Word number：20744个, words correct rate：0.922050, words error rate：0.067875 
-Line number：317, lines correct rate：0.343849,  lines error rate：0.656151 
-Recall: 0.922050
-Precision: 0.931434
-F MEASURE: 0.926718
-ERR RATE: 0.067875
+result-(epoch:32):
+Num of words：20744，accuracy rate：0.948419，error rate：0.049364
+Num of lines：317，accuracy rate：0.378549，error rate：0.621451
+Recall: 0.948419
+Precision: 0.950527
+F MEASURE: 0.949472
+ERR RATE: 0.049364
+====================================
+result-(epoch:35):
+Num of words：20744, accuracy rate：0.951600, error rate：0.048882
+Num of lines：317, accuracy rate：0.425868, error rate：0.574132
+Recall: 0.951600
+Precision: 0.951142
+F MEASURE: 0.951371
+ERR RATE: 0.048882
+====================================
 ```

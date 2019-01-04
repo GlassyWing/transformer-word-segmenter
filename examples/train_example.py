@@ -15,7 +15,7 @@ if __name__ == '__main__':
     src_dict_path = "../data/src_dict.json"  # 源字典路径
     tgt_dict_path = "../data/tgt_dict.json"  # 目标字典路径
     batch_size = 32
-    epochs = 256
+    epochs = 128
     num_gpu = 1
     max_seq_len = 150
 
@@ -30,8 +30,8 @@ if __name__ == '__main__':
                              batch_size=batch_size,
                              sparse_target=False)
 
-    steps_per_epoch = 1500
-    validation_steps = 50
+    steps_per_epoch = 2000
+    validation_steps = 20
 
     config = {
         'src_vocab_size': data_loader.src_vocab_size,
@@ -40,8 +40,8 @@ if __name__ == '__main__':
         'max_depth': 2,
         'model_dim': 128,
         'lstm_units': 128,
-        'embedding_dropout': 0.1,
-        'residual_dropout': 0.2,
+        'embedding_dropout': 0.0,
+        'residual_dropout': 0.0,
         'attention_dropout': 0.1,
         'l2_reg_penalty': 1e-6,
         'confidence_penalty_weight': 0.1,
@@ -77,7 +77,7 @@ if __name__ == '__main__':
 
     # Use LRFinder to find effective learning rate
     lr_finder = LRFinder(1e-6, 1e-2, steps_per_epoch, epochs=1)  # => (2e-4, 3e-4)
-    lr_scheduler = LRSchedulerPerStep(segmenter.model_dim, warmup=10000)
+    lr_scheduler = LRSchedulerPerStep(segmenter.model_dim, warmup=4000)
     # lr_scheduler = SGDRScheduler(min_lr=1e-5, max_lr=1e-4, steps_per_epoch=steps_per_epoch,
     #                              cycle_length=15,
     #                              lr_decay=0.98,
