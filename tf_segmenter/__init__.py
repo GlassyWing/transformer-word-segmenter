@@ -6,7 +6,7 @@ from multiprocessing import Lock
 import keras.backend as K
 import numpy as np
 from keras import Input, Model, regularizers
-from keras.layers import Dense, Embedding, Softmax, Dropout
+from keras.layers import Dense, Embedding, Softmax, Dropout, Bidirectional, LSTM
 from keras.losses import categorical_crossentropy
 from keras.optimizers import Adam
 from keras.utils import multi_gpu_model
@@ -17,7 +17,6 @@ from keras_transformer.position import TransformerCoordinateEmbedding
 from keras_transformer.transformer import TransformerBlock, TransformerACT
 
 from tf_segmenter.utils import load_dictionary
-from tf_segmenter.custom.elmo import ELMoEmbedding
 
 
 def label_smoothing_loss(y_true, y_pred):
@@ -34,7 +33,8 @@ class TFSegmenter:
                  src_vocab_size: int,
                  tgt_vocab_size: int,
                  max_seq_len: int,
-                 model_dim: int = 256,
+                 model_dim: int = 128,
+                 lstm_units: int = 128,
                  max_depth: int = 8,
                  num_heads: int = 8,
                  embedding_dropout: float = 0.0,
@@ -43,7 +43,6 @@ class TFSegmenter:
                  confidence_penalty_weight: float = 0.1,
                  l2_reg_penalty: float = 1e-6,
                  compression_window_size: int = None,
-                 use_masking: bool = True,
                  use_crf: bool = True,
                  label_smooth: bool = False,
                  optimizer=Adam(),
@@ -54,17 +53,26 @@ class TFSegmenter:
 
         """
 
-        :param src_vocab_size: 源词汇量大小
-        :param tgt_vocab_size: 标签词汇量大小
-        :param max_seq_len: 最大句子长度
-        :param model_dim:   输入大小
-        :param num_heads:   多头注意力头数
-        :param use_crf:     是否使用随机向量场层作为最后的输出
-        :param optimizer:   优化函数
-        :param src_tokenizer:   源字典
-        :param tgt_tokenizer:   目标字典
-        :param weights_path:    权重载入路径
-        :param num_gpu:         gpu数量
+        :param src_vocab_size:  源字库大小
+        :param tgt_vocab_size:  目标标签数量
+        :param max_seq_len:     最大输入长度
+        :param model_dim:       Transformer 模型维度
+        :param lstm_units:      lstm 单元数量
+        :param max_depth:       Universal Transformer 深度
+        :param num_heads:       多头注意力头数
+        :param embedding_dropout: 词嵌入失活率
+        :param residual_dropout:  残差失活率
+        :param attention_dropout: 注意力失活率
+        :param confidence_penalty_weight:
+        :param l2_reg_penalty:  l2 正则化率
+        :param compression_window_size: 压缩窗口大小
+        :param use_crf:     是否使用crf
+        :param label_smooth: 是否使用label smooth，仅在禁用crf时起效
+        :param optimizer:   优化器
+        :param src_tokenizer: 源切割器
+        :param tgt_tokenizer: 目标切割器
+        :param weights_path: 权重路径
+        :param num_gpu: 使用gpu数量
         """
 
         self.optimizer = optimizer
@@ -78,12 +86,12 @@ class TFSegmenter:
         self.label_smooth = label_smooth
         self.num_gpu = num_gpu
         self.model_dim = model_dim
+        self.lstm_units = lstm_units
         self.embedding_dropout = embedding_dropout
         self.residual_dropout = residual_dropout
         self.attention_dropout = attention_dropout
         self.confidence_penalty_weight = confidence_penalty_weight
         self.l2_reg_penalty = l2_reg_penalty
-        self.use_masking = use_masking
         self.compression_window_size = compression_window_size
         self.use_crf = use_crf
 
@@ -105,13 +113,11 @@ class TFSegmenter:
                                     input_length=self.max_seq_len,
                                     name='embeddings')
 
-        # embedding_layer = ELMoEmbedding(idx2word=self.src_tokenizer.index_word,
-        #                                 output_mode='elmo',
-        #                                 trainable=True)
+        bilstm = Bidirectional(LSTM(self.lstm_units, return_sequences=True, bias_initializer="ones"))
 
         output_layer = Dense(self.tgt_vocab_size + 1,
                              kernel_regularizer=regularizers.l2(self.l2_reg_penalty),
-                             name='outpu_layer')
+                             name='output_layer')
 
         coordinate_embedding_layer = TransformerCoordinateEmbedding(
             self.max_depth,
@@ -124,7 +130,7 @@ class TFSegmenter:
             num_heads=self.num_heads,
             residual_dropout=self.residual_dropout,
             attention_dropout=self.attention_dropout,
-            use_masking=self.use_masking)
+            use_masking=False)
 
         output_softmax_layer = Softmax(name="word_predictions")
 
@@ -139,6 +145,8 @@ class TFSegmenter:
         transformer_act_layer.finalize()
 
         next_step_input = act_output
+
+        next_step_input = bilstm(next_step_input)
 
         if self.use_crf:
             crf = CRF(self.tgt_vocab_size + 1, sparse_target=False)
@@ -240,7 +248,6 @@ class TFSegmenter:
             'residual_dropout': self.residual_dropout,
             'attention_dropout': self.attention_dropout,
             'compression_window_size': self.compression_window_size,
-            'use_masking': self.use_masking,
             'num_heads': self.num_heads,
             'use_crf': self.use_crf,
             'label_smooth': self.label_smooth

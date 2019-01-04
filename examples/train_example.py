@@ -38,17 +38,17 @@ if __name__ == '__main__':
         'tgt_vocab_size': data_loader.tgt_vocab_size,
         'max_seq_len': max_seq_len,
         'max_depth': 2,
-        'model_dim': 256,
+        'model_dim': 128,
+        'lstm_units': 128,
         'embedding_dropout': 0.1,
         'residual_dropout': 0.2,
         'attention_dropout': 0.1,
         'l2_reg_penalty': 1e-6,
         'confidence_penalty_weight': 0.1,
         'compression_window_size': None,
-        'use_masking': True,
         'num_heads': 8,
         'use_crf': True,
-        'label_smooth': True
+        'label_smooth': False
     }
 
     # K.set_session(get_session(0.9))
