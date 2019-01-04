@@ -1,4 +1,6 @@
 import argparse
+import os
+import time
 
 from tf_segmenter import get_or_create
 
@@ -9,6 +11,8 @@ if __name__ == '__main__':
     parser.add_argument("-o", "--out_file", help="分割完成后输出的文件。", default="../data/pred_text.utf8")
 
     args = parser.parse_args()
+
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
     tokenizer = get_or_create("../data/default-config.json",
                               src_dict_path="../data/src_dict.json",
@@ -21,9 +25,11 @@ if __name__ == '__main__':
 
     texts = []
     if text is not None:
+        start_time = time.time()
         texts = text.split(' ')
         results = tokenizer.decode_texts(texts)
         print(results)
+        print(f"cost {(time.time() -start_time) * 1000}ms")
 
     elif file is not None:
         with open(file, encoding='utf-8') as f:
