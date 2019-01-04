@@ -130,6 +130,7 @@ class TFSegmenter:
             num_heads=self.num_heads,
             residual_dropout=self.residual_dropout,
             attention_dropout=self.attention_dropout,
+            compression_window_size=self.compression_window_size,
             use_masking=False)
 
         output_softmax_layer = Softmax(name="word_predictions")
