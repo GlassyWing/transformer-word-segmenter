@@ -1,6 +1,6 @@
 # transformer-word-segmenter
 
-This is a sequence labelling model base on [Universal Transformer (Encoder)](https://arxiv.org/abs/1807.03819) + Bi-LSTM + CRF which can be used for Chinese word segmentation. The role Universal Transformer (Encoder) plays similar to Elmo Embedding.
+This is a sequence labelling model base on [Universal Transformer (Encoder)](https://arxiv.org/abs/1807.03819) + CRF which can be used for Chinese word segmentation. The role Universal Transformer (Encoder) plays similar to Elmo Embedding.
 
 ## Install
 
