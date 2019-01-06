@@ -6,7 +6,7 @@ from multiprocessing import Lock
 import keras.backend as K
 import numpy as np
 from keras import Input, Model, regularizers
-from keras.layers import Dense, Embedding, Softmax, Dropout, Bidirectional, LSTM
+from keras.layers import Dense, Embedding, Softmax, Dropout, Conv1D
 from keras.losses import categorical_crossentropy
 from keras.optimizers import Adam
 from keras.utils import multi_gpu_model
@@ -34,7 +34,7 @@ class TFSegmenter:
                  tgt_vocab_size: int,
                  max_seq_len: int,
                  model_dim: int = 128,
-                 lstm_units: int = 128,
+                 num_filters: int = 128,
                  max_depth: int = 8,
                  num_heads: int = 8,
                  embedding_dropout: float = 0.0,
@@ -57,7 +57,7 @@ class TFSegmenter:
         :param tgt_vocab_size:  目标标签数量
         :param max_seq_len:     最大输入长度
         :param model_dim:       Transformer 模型维度
-        :param lstm_units:      lstm 单元数量
+        :param num_filters:     卷积层核数量
         :param max_depth:       Universal Transformer 深度
         :param num_heads:       多头注意力头数
         :param embedding_dropout: 词嵌入失活率
@@ -86,7 +86,7 @@ class TFSegmenter:
         self.label_smooth = label_smooth
         self.num_gpu = num_gpu
         self.model_dim = model_dim
-        self.lstm_units = lstm_units
+        self.num_filters = num_filters
         self.embedding_dropout = embedding_dropout
         self.residual_dropout = residual_dropout
         self.attention_dropout = attention_dropout
@@ -112,8 +112,6 @@ class TFSegmenter:
         embedding_layer = Embedding(self.src_vocab_size + 1, self.model_dim,
                                     input_length=self.max_seq_len,
                                     name='embeddings')
-
-        bilstm = Bidirectional(LSTM(self.lstm_units, return_sequences=True, bias_initializer="ones"))
 
         output_layer = Dense(self.tgt_vocab_size + 1,
                              kernel_regularizer=regularizers.l2(self.l2_reg_penalty),
@@ -147,7 +145,7 @@ class TFSegmenter:
 
         next_step_input = act_output
 
-        next_step_input = bilstm(next_step_input)
+        next_step_input = self.__decoder(next_step_input)
 
         if self.use_crf:
             crf = CRF(self.tgt_vocab_size + 1, sparse_target=False)
@@ -173,6 +171,13 @@ class TFSegmenter:
                 parallel_model.compile(optimizer=self.optimizer, loss=categorical_crossentropy, metrics=['accuracy'])
 
         return model, parallel_model
+
+    def __decoder(self, input):
+        next_conv_input = Conv1D(self.num_filters, 3, activation="relu", padding="same")(input)
+        next_conv_input = Conv1D(self.num_filters, 1, activation="relu", padding="same")(next_conv_input)
+        next_conv_input = Conv1D(self.num_filters, 3, activation="relu", padding="same")(next_conv_input)
+
+        return next_conv_input
 
     def decode_sequences(self, sequences):
         sequences = self._seq_to_matrix(sequences)
@@ -243,6 +248,7 @@ class TFSegmenter:
             'max_seq_len': self.max_seq_len,
             'max_depth': self.max_depth,
             'model_dim': self.model_dim,
+            'num_filters': self.num_filters,
             'confidence_penalty_weight': self.confidence_penalty_weight,
             'l2_reg_penalty': self.l2_reg_penalty,
             'embedding_dropout': self.embedding_dropout,
