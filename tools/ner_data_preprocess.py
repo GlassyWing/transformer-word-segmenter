@@ -117,6 +117,8 @@ def _tag(words):
             for i, char in enumerate(word):
                 if i == 0:
                     bis.append((char, 'B-' + pos))
+                elif i == len(word) - 1:
+                    bis.append((char, 'E-' + pos))
                 else:
                     bis.append((char, 'I-' + pos))
     # bis.append(('\n', 'O'))

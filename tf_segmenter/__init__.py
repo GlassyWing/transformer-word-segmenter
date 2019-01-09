@@ -132,7 +132,7 @@ class TFSegmenter:
         transformer_blocks = [TransformerBlock(
             name='transformer_' + str(i),
             num_heads=self.num_heads,
-            kernel_size=3,
+            kernel_size=1,
             residual_dropout=self.residual_dropout,
             attention_dropout=self.attention_dropout,
             compression_window_size=self.compression_window_size,
