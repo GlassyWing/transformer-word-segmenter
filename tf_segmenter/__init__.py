@@ -1,19 +1,20 @@
 import json
 import re
+import traceback
 from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import Lock
 
 import keras.backend as K
 import numpy as np
 from keras import Input, Model, regularizers
-from keras.layers import Dense, Embedding, Softmax, Dropout, Conv1D
+from keras.layers import Embedding, Softmax, Dropout, Conv1D, Dense
 from keras.losses import categorical_crossentropy
 from keras.optimizers import Adam
 from keras.utils import multi_gpu_model
 from keras_contrib.layers import CRF
 from keras_preprocessing.sequence import pad_sequences
 from keras_preprocessing.text import Tokenizer
-from keras_transformer.position import TransformerCoordinateEmbedding
+from keras_transformer.position import AddCoordinateEncoding
 from keras_transformer.transformer import TransformerBlock, TransformerACT
 
 from tf_segmenter.utils import load_dictionary
@@ -33,8 +34,10 @@ class TFSegmenter:
                  src_vocab_size: int,
                  tgt_vocab_size: int,
                  max_seq_len: int,
+                 embedding_size_word: int = 300,
                  model_dim: int = 128,
                  num_filters: int = 128,
+                 num_blocks: int = 2,
                  max_depth: int = 8,
                  num_heads: int = 8,
                  embedding_dropout: float = 0.0,
@@ -85,6 +88,8 @@ class TFSegmenter:
         self.max_depth = max_depth
         self.label_smooth = label_smooth
         self.num_gpu = num_gpu
+        self.num_blocks = num_blocks
+        self.embedding_size_word = embedding_size_word
         self.model_dim = model_dim
         self.num_filters = num_filters
         self.embedding_dropout = embedding_dropout
@@ -109,36 +114,39 @@ class TFSegmenter:
 
         src_seq_input = Input(shape=(self.max_seq_len,), dtype="int32", name="src_seq_input")
 
-        embedding_layer = Embedding(self.src_vocab_size + 1, self.model_dim,
+        embedding_layer = Embedding(self.src_vocab_size + 1, self.embedding_size_word,
                                     input_length=self.max_seq_len,
                                     name='embeddings')
 
-        output_layer = Dense(self.tgt_vocab_size + 1,
-                             kernel_regularizer=regularizers.l2(self.l2_reg_penalty),
-                             name='output_layer')
+        emb_project_layer = Dense(self.model_dim, activation="relu", use_bias=False)
 
-        coordinate_embedding_layer = TransformerCoordinateEmbedding(
-            self.max_depth,
-            name='coordinate_embedding')
+        output_layer = Conv1D(self.tgt_vocab_size + 1,
+                              kernel_size=1,
+                              kernel_regularizer=regularizers.l2(self.l2_reg_penalty),
+                              name='output_layer')
+
+        coordinate_embedding_layer = AddCoordinateEncoding()
 
         transformer_act_layer = TransformerACT(name='adaptive_computation_time')
 
-        transformer_block = TransformerBlock(
-            name='transformer',
+        transformer_blocks = [TransformerBlock(
+            name='transformer_' + str(i),
             num_heads=self.num_heads,
+            kernel_size=3,
             residual_dropout=self.residual_dropout,
             attention_dropout=self.attention_dropout,
             compression_window_size=self.compression_window_size,
-            use_masking=False)
+            use_masking=False) for i in range(self.num_blocks)]
 
         output_softmax_layer = Softmax(name="word_predictions")
 
-        next_step_input = Dropout(self.embedding_dropout)(embedding_layer(src_seq_input))
+        next_step_input = emb_project_layer(Dropout(self.embedding_dropout)(embedding_layer(src_seq_input)))
         act_output = next_step_input
 
         for step in range(self.max_depth):
             next_step_input = coordinate_embedding_layer(next_step_input, step=step)
-            next_step_input = transformer_block(next_step_input)
+            for i in range(self.num_blocks):
+                next_step_input = transformer_blocks[i](next_step_input)
             next_step_input, act_output = transformer_act_layer(next_step_input)
 
         transformer_act_layer.finalize()
@@ -172,12 +180,12 @@ class TFSegmenter:
 
         return model, parallel_model
 
-    def __decoder(self, input):
-        next_conv_input = Conv1D(self.num_filters, 3, activation="relu", padding="same")(input)
-        next_conv_input = Conv1D(self.num_filters, 1, activation="relu", padding="same")(next_conv_input)
-        next_conv_input = Conv1D(self.num_filters, 3, activation="relu", padding="same")(next_conv_input)
+    def __decoder(self, next_input):
+        # next_input = Conv1D(self.num_filters, 3, activation="relu", padding="same")(next_input)
+        # next_input = Conv1D(self.num_filters, 1, activation="relu", padding="same")(next_input)
+        # next_input = Conv1D(self.num_filters, 3, activation="relu", padding="same")(next_input)
 
-        return next_conv_input
+        return next_input
 
     def decode_sequences(self, sequences):
         sequences = self._seq_to_matrix(sequences)
@@ -249,6 +257,7 @@ class TFSegmenter:
             'max_depth': self.max_depth,
             'model_dim': self.model_dim,
             'num_filters': self.num_filters,
+            'embedding_size_word': self.embedding_size_word,
             'confidence_penalty_weight': self.confidence_penalty_weight,
             'l2_reg_penalty': self.l2_reg_penalty,
             'embedding_dropout': self.embedding_dropout,
@@ -256,6 +265,7 @@ class TFSegmenter:
             'attention_dropout': self.attention_dropout,
             'compression_window_size': self.compression_window_size,
             'num_heads': self.num_heads,
+            'num_blocks': self.num_blocks,
             'use_crf': self.use_crf,
             'label_smooth': self.label_smooth
         }
@@ -291,8 +301,8 @@ class TFSegmenter:
                 config['weights_path'] = weights_path
                 config['optimizer'] = optimizer
                 TFSegmenter.__singleton = TFSegmenter(**config)
-        except Exception as e:
-            print(e)
+        except Exception:
+            traceback.print_exc()
         finally:
             TFSegmenter.__lock.release()
         return TFSegmenter.__singleton
