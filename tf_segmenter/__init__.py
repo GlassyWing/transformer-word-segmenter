@@ -12,9 +12,11 @@ from keras.losses import categorical_crossentropy
 from keras.optimizers import Adam
 from keras.utils import multi_gpu_model
 from keras_contrib.layers import CRF
+from keras_contrib.losses import crf_loss
+from keras_contrib.metrics import crf_viterbi_accuracy
 from keras_preprocessing.sequence import pad_sequences
 from keras_preprocessing.text import Tokenizer
-from keras_transformer.position import AddCoordinateEncoding
+from keras_transformer.position import AddCoordinateEncoding, TransformerCoordinateEmbedding
 from keras_transformer.transformer import TransformerBlock, TransformerACT
 
 from tf_segmenter.utils import load_dictionary
@@ -118,7 +120,8 @@ class TFSegmenter:
                                     input_length=self.max_seq_len,
                                     name='embeddings')
 
-        emb_project_layer = Dense(self.model_dim, activation="relu", use_bias=False)
+        emb_project_layer = Dense(self.model_dim, activation="linear", use_bias=False, name="emb_project")
+        emb_dropout_layer = Dropout(self.embedding_dropout, name="emb_dropout")
 
         output_layer = Conv1D(self.tgt_vocab_size + 1,
                               kernel_size=1,
@@ -132,7 +135,6 @@ class TFSegmenter:
         transformer_blocks = [TransformerBlock(
             name='transformer_' + str(i),
             num_heads=self.num_heads,
-            kernel_size=1,
             residual_dropout=self.residual_dropout,
             attention_dropout=self.attention_dropout,
             compression_window_size=self.compression_window_size,
@@ -140,7 +142,7 @@ class TFSegmenter:
 
         output_softmax_layer = Softmax(name="word_predictions")
 
-        next_step_input = emb_project_layer(Dropout(self.embedding_dropout)(embedding_layer(src_seq_input)))
+        next_step_input = emb_project_layer(emb_dropout_layer(embedding_layer(src_seq_input)))
         act_output = next_step_input
 
         for step in range(self.max_depth):
@@ -167,7 +169,7 @@ class TFSegmenter:
             parallel_model = multi_gpu_model(model, gpus=self.num_gpu)
 
         if self.use_crf:
-            parallel_model.compile(self.optimizer, loss=crf.loss_function, metrics=[crf.accuracy])
+            parallel_model.compile(self.optimizer, loss=crf_loss, metrics=[crf_viterbi_accuracy])
         else:
             confidence_penalty = K.mean(
                 self.confidence_penalty_weight *
@@ -181,9 +183,9 @@ class TFSegmenter:
         return model, parallel_model
 
     def __decoder(self, next_input):
-        # next_input = Conv1D(self.num_filters, 3, activation="relu", padding="same")(next_input)
-        # next_input = Conv1D(self.num_filters, 1, activation="relu", padding="same")(next_input)
-        # next_input = Conv1D(self.num_filters, 3, activation="relu", padding="same")(next_input)
+        next_input = Conv1D(self.num_filters, 3, activation="relu", padding="same")(next_input)
+        next_input = Conv1D(self.num_filters, 1, activation="relu", padding="same")(next_input)
+        next_input = Conv1D(self.num_filters, 3, activation="relu", padding="same")(next_input)
 
         return next_input
 
@@ -213,7 +215,7 @@ class TFSegmenter:
                     cur_tag.append(pre_pos)
                 t1 = [word]
                 pre_pos = pos
-            elif c == 'i':
+            elif c in 'ie':
                 t1.append(word)
                 pre_pos = pos
             elif c == 'b':
