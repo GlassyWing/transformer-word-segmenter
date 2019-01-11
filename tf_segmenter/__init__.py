@@ -7,7 +7,7 @@ from multiprocessing import Lock
 import keras.backend as K
 import numpy as np
 from keras import Input, Model, regularizers
-from keras.layers import Embedding, Softmax, Dropout, Conv1D, Dense
+from keras.layers import Embedding, Softmax, Dropout, Conv1D, Dense, Bidirectional, LSTM
 from keras.losses import categorical_crossentropy
 from keras.optimizers import Adam
 from keras.utils import multi_gpu_model
@@ -16,8 +16,10 @@ from keras_contrib.losses import crf_loss
 from keras_contrib.metrics import crf_viterbi_accuracy
 from keras_preprocessing.sequence import pad_sequences
 from keras_preprocessing.text import Tokenizer
-from keras_transformer.position import AddCoordinateEncoding, TransformerCoordinateEmbedding
+from keras_transformer.attention import MultiHeadAttention
+from keras_transformer.position import AddCoordinateEncoding
 from keras_transformer.transformer import TransformerBlock, TransformerACT
+from keras_transformer.transformer import gelu
 
 from tf_segmenter.utils import load_dictionary
 
@@ -128,40 +130,18 @@ class TFSegmenter:
                               kernel_regularizer=regularizers.l2(self.l2_reg_penalty),
                               name='output_layer')
 
-        coordinate_embedding_layer = AddCoordinateEncoding()
-
-        transformer_act_layer = TransformerACT(name='adaptive_computation_time')
-
-        transformer_blocks = [TransformerBlock(
-            name='transformer_' + str(i),
-            num_heads=self.num_heads,
-            residual_dropout=self.residual_dropout,
-            attention_dropout=self.attention_dropout,
-            compression_window_size=self.compression_window_size,
-            use_masking=False) for i in range(self.num_blocks)]
-
         output_softmax_layer = Softmax(name="word_predictions")
 
-        next_step_input = emb_project_layer(emb_dropout_layer(embedding_layer(src_seq_input)))
-        act_output = next_step_input
+        emb_output = emb_project_layer(emb_dropout_layer(embedding_layer(src_seq_input)))
 
-        for step in range(self.max_depth):
-            next_step_input = coordinate_embedding_layer(next_step_input, step=step)
-            for i in range(self.num_blocks):
-                next_step_input = transformer_blocks[i](next_step_input)
-            next_step_input, act_output = transformer_act_layer(next_step_input)
-
-        transformer_act_layer.finalize()
-
-        next_step_input = act_output
-
-        next_step_input = self.__decoder(next_step_input)
+        enc_output = self.__encoder(emb_output)
+        dec_output = self.__decoder(enc_output, emb_output)
 
         if self.use_crf:
             crf = CRF(self.tgt_vocab_size + 1, sparse_target=False)
-            y_pred = crf(output_layer(next_step_input))
+            y_pred = crf(output_layer(dec_output))
         else:
-            y_pred = output_softmax_layer(output_layer(next_step_input))
+            y_pred = output_softmax_layer(output_layer(dec_output))
 
         model = Model(inputs=[src_seq_input], outputs=[y_pred])
         parallel_model = model
@@ -182,12 +162,37 @@ class TFSegmenter:
 
         return model, parallel_model
 
-    def __decoder(self, next_input):
-        next_input = Conv1D(self.num_filters, 3, activation="relu", padding="same")(next_input)
-        next_input = Conv1D(self.num_filters, 1, activation="relu", padding="same")(next_input)
-        next_input = Conv1D(self.num_filters, 3, activation="relu", padding="same")(next_input)
+    def __encoder(self, emb_inputs):
+        transformer_enc_layer = TransformerBlock(
+            name='transformer_enc',
+            num_heads=self.num_heads,
+            residual_dropout=self.residual_dropout,
+            attention_dropout=self.attention_dropout,
+            compression_window_size=self.compression_window_size,
+            use_masking=False)
+        coordinate_embedding_layer = AddCoordinateEncoding(name="coordinate_emb1")
+        transformer_act_layer = TransformerACT(name='adaptive_computation_time1')
 
-        return next_input
+        next_step_input = emb_inputs
+        act_output = next_step_input
+
+        for step in range(self.max_depth):
+            next_step_input = coordinate_embedding_layer(next_step_input, step=step)
+            next_step_input = transformer_enc_layer(next_step_input)
+            next_step_input, act_output = transformer_act_layer(next_step_input)
+
+        transformer_act_layer.finalize()
+
+        next_step_input = act_output
+
+        return next_step_input
+
+    def __decoder(self, enc_output, emb_inputs):
+        next_step_input = enc_output
+        # next_step_input = Bidirectional(LSTM(units=self.model_dim, activation=gelu, return_sequences=True))(
+        #     next_step_input)
+
+        return next_step_input
 
     def decode_sequences(self, sequences):
         sequences = self._seq_to_matrix(sequences)
