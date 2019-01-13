@@ -13,7 +13,7 @@ from keras.optimizers import Adam
 from keras.utils import multi_gpu_model
 from keras_contrib.layers import CRF
 from keras_contrib.losses import crf_loss
-from keras_contrib.metrics import crf_viterbi_accuracy
+from keras_contrib.metrics import crf_accuracy
 from keras_preprocessing.sequence import pad_sequences
 from keras_preprocessing.text import Tokenizer
 from keras_transformer.position import AddCoordinateEncoding
@@ -132,7 +132,7 @@ class TFSegmenter:
             parallel_model = multi_gpu_model(model, gpus=self.num_gpu)
 
         if self.use_crf:
-            parallel_model.compile(self.optimizer, loss=crf_loss, metrics=[crf_viterbi_accuracy])
+            parallel_model.compile(self.optimizer, loss=crf_loss, metrics=[crf_accuracy])
         else:
             confidence_penalty = K.mean(
                 self.confidence_penalty_weight *
@@ -184,7 +184,7 @@ class TFSegmenter:
 
         emb_project_layer = Conv1D(self.model_dim, activation="linear",
                                    kernel_size=1,
-                                   use_bias=False, name="emb_project")
+                                   name="emb_project")
         emb_dropout_layer = Dropout(self.embedding_dropout, name="emb_dropout")
 
         emb_output = emb_project_layer(emb_dropout_layer(embedding_layer(src_seq_input)))
@@ -193,9 +193,8 @@ class TFSegmenter:
     def __output(self, dec_output):
         spatial_transformation_layer = Conv1D(self.tgt_vocab_size + 1,
                                               kernel_size=1,
-                                              use_bias=False,
                                               activation="linear",
-                                             name="spatial_transformation_layer")
+                                              name="spatial_transformation_layer")
         output_layer = Conv1D(self.tgt_vocab_size + 1,
                               kernel_size=1,
                               activation=gelu,
