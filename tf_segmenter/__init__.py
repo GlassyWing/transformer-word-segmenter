@@ -7,7 +7,7 @@ from multiprocessing import Lock
 import keras.backend as K
 import numpy as np
 from keras import Input, Model, regularizers
-from keras.layers import Embedding, Softmax, Dropout, Conv1D, Dense, Bidirectional, LSTM
+from keras.layers import Embedding, Softmax, Dropout, Conv1D
 from keras.losses import categorical_crossentropy
 from keras.optimizers import Adam
 from keras.utils import multi_gpu_model
@@ -16,7 +16,6 @@ from keras_contrib.losses import crf_loss
 from keras_contrib.metrics import crf_viterbi_accuracy
 from keras_preprocessing.sequence import pad_sequences
 from keras_preprocessing.text import Tokenizer
-from keras_transformer.attention import MultiHeadAttention
 from keras_transformer.position import AddCoordinateEncoding
 from keras_transformer.transformer import TransformerBlock, TransformerACT
 from keras_transformer.transformer import gelu
@@ -64,7 +63,6 @@ class TFSegmenter:
         :param tgt_vocab_size:  目标标签数量
         :param max_seq_len:     最大输入长度
         :param model_dim:       Transformer 模型维度
-        :param num_filters:     卷积层核数量
         :param max_depth:       Universal Transformer 深度
         :param num_heads:       多头注意力头数
         :param embedding_dropout: 词嵌入失活率
@@ -118,30 +116,15 @@ class TFSegmenter:
 
         src_seq_input = Input(shape=(self.max_seq_len,), dtype="int32", name="src_seq_input")
 
-        embedding_layer = Embedding(self.src_vocab_size + 1, self.embedding_size_word,
-                                    input_length=self.max_seq_len,
-                                    name='embeddings')
-
-        emb_project_layer = Dense(self.model_dim, activation="linear", use_bias=False, name="emb_project")
-        emb_dropout_layer = Dropout(self.embedding_dropout, name="emb_dropout")
-
-        output_layer = Conv1D(self.tgt_vocab_size + 1,
-                              kernel_size=1,
-                              kernel_regularizer=regularizers.l2(self.l2_reg_penalty),
-                              name='output_layer')
-
-        output_softmax_layer = Softmax(name="word_predictions")
-
-        emb_output = emb_project_layer(emb_dropout_layer(embedding_layer(src_seq_input)))
-
+        emb_output = self.__input(src_seq_input)
         enc_output = self.__encoder(emb_output)
         dec_output = self.__decoder(enc_output, emb_output)
 
         if self.use_crf:
             crf = CRF(self.tgt_vocab_size + 1, sparse_target=False)
-            y_pred = crf(output_layer(dec_output))
+            y_pred = crf(self.__output(dec_output))
         else:
-            y_pred = output_softmax_layer(output_layer(dec_output))
+            y_pred = self.__output(dec_output)
 
         model = Model(inputs=[src_seq_input], outputs=[y_pred])
         parallel_model = model
@@ -193,6 +176,38 @@ class TFSegmenter:
         #     next_step_input)
 
         return next_step_input
+
+    def __input(self, src_seq_input):
+        embedding_layer = Embedding(self.src_vocab_size + 1, self.embedding_size_word,
+                                    input_length=self.max_seq_len,
+                                    name='embeddings')
+
+        emb_project_layer = Conv1D(self.model_dim, activation="linear",
+                                   kernel_size=1,
+                                   use_bias=False, name="emb_project")
+        emb_dropout_layer = Dropout(self.embedding_dropout, name="emb_dropout")
+
+        emb_output = emb_project_layer(emb_dropout_layer(embedding_layer(src_seq_input)))
+        return emb_output
+
+    def __output(self, dec_output):
+        spatial_transformation_layer = Conv1D(self.tgt_vocab_size + 1,
+                                              kernel_size=1,
+                                              use_bias=False,
+                                              activation="linear",
+                                             name="spatial_transformation_layer")
+        output_layer = Conv1D(self.tgt_vocab_size + 1,
+                              kernel_size=1,
+                              activation=gelu,
+                              kernel_regularizer=regularizers.l2(self.l2_reg_penalty),
+                              name='output_layer')
+
+        output_softmax_layer = Softmax(name="word_predictions")
+
+        if self.use_crf:
+            return output_layer(spatial_transformation_layer(dec_output))
+        else:
+            return output_softmax_layer(output_layer(spatial_transformation_layer(dec_output)))
 
     def decode_sequences(self, sequences):
         sequences = self._seq_to_matrix(sequences)
@@ -263,7 +278,6 @@ class TFSegmenter:
             'max_seq_len': self.max_seq_len,
             'max_depth': self.max_depth,
             'model_dim': self.model_dim,
-            'num_filters': self.num_filters,
             'embedding_size_word': self.embedding_size_word,
             'confidence_penalty_weight': self.confidence_penalty_weight,
             'l2_reg_penalty': self.l2_reg_penalty,
@@ -272,7 +286,6 @@ class TFSegmenter:
             'attention_dropout': self.attention_dropout,
             'compression_window_size': self.compression_window_size,
             'num_heads': self.num_heads,
-            'num_blocks': self.num_blocks,
             'use_crf': self.use_crf,
             'label_smooth': self.label_smooth
         }
