@@ -95,6 +95,8 @@ class DataLoader:
 
             if not self.sparse_target:
                 ret_y = to_categorical(ret_y, num_classes=self.tgt_vocab_size + 1)
+            else:
+                ret_y = np.expand_dims(ret_y, 2)
             yield ret_x, ret_y
             steps += 1
 

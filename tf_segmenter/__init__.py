@@ -40,7 +40,6 @@ class TFSegmenter:
                  embedding_size_word: int = 300,
                  model_dim: int = 128,
                  num_filters: int = 128,
-                 num_blocks: int = 2,
                  max_depth: int = 8,
                  num_heads: int = 8,
                  embedding_dropout: float = 0.0,
@@ -50,11 +49,11 @@ class TFSegmenter:
                  l2_reg_penalty: float = 1e-6,
                  compression_window_size: int = None,
                  use_crf: bool = True,
-                 label_smooth: bool = False,
                  optimizer=Adam(),
                  src_tokenizer: Tokenizer = None,
                  tgt_tokenizer: Tokenizer = None,
-                 weights_path=None,
+                 weights_path: str = None,
+                 sparse_target: bool = False,
                  num_gpu: int = 1):
 
         """
@@ -68,11 +67,10 @@ class TFSegmenter:
         :param embedding_dropout: 词嵌入失活率
         :param residual_dropout:  残差失活率
         :param attention_dropout: 注意力失活率
-        :param confidence_penalty_weight:
+        :param confidence_penalty_weight: confidence_penalty 正则化，仅在禁用CRF时有效
         :param l2_reg_penalty:  l2 正则化率
         :param compression_window_size: 压缩窗口大小
         :param use_crf:     是否使用crf
-        :param label_smooth: 是否使用label smooth，仅在禁用crf时起效
         :param optimizer:   优化器
         :param src_tokenizer: 源切割器
         :param tgt_tokenizer: 目标切割器
@@ -88,9 +86,7 @@ class TFSegmenter:
         self.max_seq_len = max_seq_len
         self.num_heads = num_heads
         self.max_depth = max_depth
-        self.label_smooth = label_smooth
         self.num_gpu = num_gpu
-        self.num_blocks = num_blocks
         self.embedding_size_word = embedding_size_word
         self.model_dim = model_dim
         self.num_filters = num_filters
@@ -101,6 +97,7 @@ class TFSegmenter:
         self.l2_reg_penalty = l2_reg_penalty
         self.compression_window_size = compression_window_size
         self.use_crf = use_crf
+        self.sparse_target = sparse_target
 
         self.model, self.parallel_model = self.__build_model()
 
@@ -121,7 +118,7 @@ class TFSegmenter:
         dec_output = self.__decoder(enc_output, emb_output)
 
         if self.use_crf:
-            crf = CRF(self.tgt_vocab_size + 1, sparse_target=False)
+            crf = CRF(self.tgt_vocab_size + 1, sparse_target=self.sparse_target)
             y_pred = crf(self.__output(dec_output))
         else:
             y_pred = self.__output(dec_output)
@@ -138,10 +135,7 @@ class TFSegmenter:
                 self.confidence_penalty_weight *
                 K.sum(y_pred * K.log(y_pred), axis=-1))
             model.add_loss(confidence_penalty)
-            if self.label_smooth:
-                parallel_model.compile(optimizer=self.optimizer, loss=label_smoothing_loss, metrics=['accuracy'])
-            else:
-                parallel_model.compile(optimizer=self.optimizer, loss=categorical_crossentropy, metrics=['accuracy'])
+            parallel_model.compile(optimizer=self.optimizer, loss=categorical_crossentropy, metrics=['accuracy'])
 
         return model, parallel_model
 
@@ -191,7 +185,7 @@ class TFSegmenter:
         return emb_output
 
     def __output(self, dec_output):
-        spatial_transformation_layer = Conv1D(self.tgt_vocab_size + 1,
+        spatial_transformation_layer = Conv1D(self.model_dim,
                                               kernel_size=1,
                                               activation="linear",
                                               name="spatial_transformation_layer")
@@ -285,8 +279,7 @@ class TFSegmenter:
             'attention_dropout': self.attention_dropout,
             'compression_window_size': self.compression_window_size,
             'num_heads': self.num_heads,
-            'use_crf': self.use_crf,
-            'label_smooth': self.label_smooth
+            'use_crf': self.use_crf
         }
 
     __singleton = None
