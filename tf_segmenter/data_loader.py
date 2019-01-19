@@ -18,6 +18,7 @@ class DataLoader:
                  fix_len=True,
                  word_delimiter=' ',
                  sent_delimiter='\t',
+                 shuffle_batch=10,
                  encoding="utf-8",
                  sparse_target=False):
         self.src_tokenizer = load_dictionary(src_dict_path, encoding)
@@ -29,6 +30,7 @@ class DataLoader:
         self.sent_delimiter = sent_delimiter
         self.src_vocab_size = self.src_tokenizer.num_words
         self.tgt_vocab_size = self.tgt_tokenizer.num_words
+        self.shuffle_batch = shuffle_batch
         self.sparse_target = sparse_target
 
     def generator(self, file_path, encoding="utf-8"):
@@ -79,11 +81,11 @@ class DataLoader:
                 return X_train, Y_train, X_valid, Y_valid
             return X, Y
 
-    def generator_from_data(self, X, Y, shuffle_batch=10):
+    def generator_from_data(self, X, Y):
         steps = 0
         total_size = X.shape[0]
         while True:
-            if steps >= shuffle_batch:
+            if steps >= self.shuffle_batch:
                 indicates = list(range(total_size))
                 np.random.shuffle(indicates)
                 X = X[indicates]

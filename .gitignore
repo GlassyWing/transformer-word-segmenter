@@ -6,3 +6,4 @@ models/
 ./*.py
 *.egg-info/
 dist/
+config/

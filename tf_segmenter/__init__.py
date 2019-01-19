@@ -7,7 +7,7 @@ from multiprocessing import Lock
 import keras.backend as K
 import numpy as np
 from keras import Input, Model, regularizers
-from keras.layers import Embedding, Softmax, Dropout, Conv1D
+from keras.layers import Embedding, Softmax, Dropout, Conv1D, Add, Concatenate, Lambda
 from keras.losses import categorical_crossentropy
 from keras.optimizers import Adam
 from keras.utils import multi_gpu_model
@@ -29,6 +29,19 @@ def label_smoothing_loss(y_true, y_pred):
     eps = 0.1
     y_true = y_true * (1 - eps) + eps / n_class
     return categorical_crossentropy(y_true, y_pred)
+
+
+def padding_mask(seq_q, seq_k):
+    """
+    A sentence is filled with 0, which is not what we need to pay attention to
+    :param seq_k: shape of [N, T_k], T_k is length of sequence
+    :param seq_q: shape of [N, T_q]
+    :return: a tensor with shape of [N, T_q, T_k]
+    """
+
+    q = K.expand_dims(K.ones_like(seq_q, dtype="float32"), axis=-1)  # [N, T_q, 1]
+    k = K.cast(K.expand_dims(K.not_equal(seq_k, 0), axis=1), dtype='float32')  # [N, 1, T_k]
+    return K.batch_dot(q, k, axes=[2, 1])
 
 
 class TFSegmenter:
@@ -113,8 +126,10 @@ class TFSegmenter:
 
         src_seq_input = Input(shape=(self.max_seq_len,), dtype="int32", name="src_seq_input")
 
+        self_attention_mask = Lambda(lambda x: padding_mask(x, x))(src_seq_input)
+
         emb_output = self.__input(src_seq_input)
-        enc_output = self.__encoder(emb_output)
+        enc_output = self.__encoder(emb_output, self_attention_mask)
         dec_output = self.__decoder(enc_output, emb_output)
 
         if self.use_crf:
@@ -139,14 +154,15 @@ class TFSegmenter:
 
         return model, parallel_model
 
-    def __encoder(self, emb_inputs):
+    def __encoder(self, emb_inputs, self_attention_mask):
         transformer_enc_layer = TransformerBlock(
             name='transformer_enc',
             num_heads=self.num_heads,
             residual_dropout=self.residual_dropout,
             attention_dropout=self.attention_dropout,
             compression_window_size=self.compression_window_size,
-            use_masking=False)
+            use_masking=False,
+            vanilla_wiring=True)
         coordinate_embedding_layer = AddCoordinateEncoding(name="coordinate_emb1")
         transformer_act_layer = TransformerACT(name='adaptive_computation_time1')
 
@@ -155,7 +171,7 @@ class TFSegmenter:
 
         for step in range(self.max_depth):
             next_step_input = coordinate_embedding_layer(next_step_input, step=step)
-            next_step_input = transformer_enc_layer(next_step_input)
+            next_step_input = transformer_enc_layer(next_step_input, padding_mask=self_attention_mask)
             next_step_input, act_output = transformer_act_layer(next_step_input)
 
         transformer_act_layer.finalize()
