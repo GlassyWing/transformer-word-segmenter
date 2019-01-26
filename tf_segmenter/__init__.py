@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 import traceback
 from concurrent.futures import ThreadPoolExecutor
@@ -7,7 +8,7 @@ from multiprocessing import Lock
 import keras.backend as K
 import numpy as np
 from keras import Input, Model, regularizers
-from keras.layers import Embedding, Softmax, Dropout, Conv1D, Add, Concatenate, Lambda
+from keras.layers import Embedding, Softmax, Dropout, Conv1D, Lambda
 from keras.losses import categorical_crossentropy
 from keras.optimizers import Adam
 from keras.utils import multi_gpu_model
@@ -16,8 +17,8 @@ from keras_contrib.losses import crf_loss
 from keras_contrib.metrics import crf_accuracy
 from keras_preprocessing.sequence import pad_sequences
 from keras_preprocessing.text import Tokenizer
-from keras_transformer.position import AddCoordinateEncoding
-from keras_transformer.transformer import TransformerBlock, TransformerACT
+from keras_transformer.position import TransformerCoordinateEmbedding
+from keras_transformer.transformer import TransformerACT, TransformerBlock
 from keras_transformer.transformer import gelu
 
 from tf_segmenter.utils import load_dictionary
@@ -58,6 +59,7 @@ class TFSegmenter:
                  embedding_dropout: float = 0.0,
                  residual_dropout: float = 0.0,
                  attention_dropout: float = 0.0,
+                 output_dropout: float = 0.0,
                  confidence_penalty_weight: float = 0.1,
                  l2_reg_penalty: float = 1e-6,
                  compression_window_size: int = None,
@@ -106,6 +108,7 @@ class TFSegmenter:
         self.embedding_dropout = embedding_dropout
         self.residual_dropout = residual_dropout
         self.attention_dropout = attention_dropout
+        self.output_dropout = output_dropout
         self.confidence_penalty_weight = confidence_penalty_weight
         self.l2_reg_penalty = l2_reg_penalty
         self.compression_window_size = compression_window_size
@@ -118,25 +121,22 @@ class TFSegmenter:
             try:
                 self.model.load_weights(weights_path)
             except Exception as e:
-                print(e)
-                print("Fail to load weights, create a new model!")
+                logging.error(e)
+                logging.info("Fail to load weights, create a new model!")
 
     def __build_model(self):
         assert self.max_depth >= 1, "The parameter max_depth is at least 1"
 
         src_seq_input = Input(shape=(self.max_seq_len,), dtype="int32", name="src_seq_input")
 
-        self_attention_mask = Lambda(lambda x: padding_mask(x, x))(src_seq_input)
-
         emb_output = self.__input(src_seq_input)
-        enc_output = self.__encoder(emb_output, self_attention_mask)
-        dec_output = self.__decoder(enc_output, emb_output)
+        enc_output = self.__encoder(emb_output, src_seq_input)
 
         if self.use_crf:
             crf = CRF(self.tgt_vocab_size + 1, sparse_target=self.sparse_target)
-            y_pred = crf(self.__output(dec_output))
+            y_pred = crf(self.__output(enc_output))
         else:
-            y_pred = self.__output(dec_output)
+            y_pred = self.__output(enc_output)
 
         model = Model(inputs=[src_seq_input], outputs=[y_pred])
         parallel_model = model
@@ -154,7 +154,10 @@ class TFSegmenter:
 
         return model, parallel_model
 
-    def __encoder(self, emb_inputs, self_attention_mask):
+    def __encoder(self, emb_inputs, src_seq_input):
+
+        self_attention_mask = Lambda(lambda x: padding_mask(x, x))(src_seq_input)
+
         transformer_enc_layer = TransformerBlock(
             name='transformer_enc',
             num_heads=self.num_heads,
@@ -163,7 +166,8 @@ class TFSegmenter:
             compression_window_size=self.compression_window_size,
             use_masking=False,
             vanilla_wiring=True)
-        coordinate_embedding_layer = AddCoordinateEncoding(name="coordinate_emb1")
+        coordinate_embedding_layer = TransformerCoordinateEmbedding(name="coordinate_emb1",
+                                                                    max_transformer_depth=self.max_depth)
         transformer_act_layer = TransformerACT(name='adaptive_computation_time1')
 
         next_step_input = emb_inputs
@@ -177,13 +181,6 @@ class TFSegmenter:
         transformer_act_layer.finalize()
 
         next_step_input = act_output
-
-        return next_step_input
-
-    def __decoder(self, enc_output, emb_inputs):
-        next_step_input = enc_output
-        # next_step_input = Bidirectional(LSTM(units=self.model_dim, activation=gelu, return_sequences=True))(
-        #     next_step_input)
 
         return next_step_input
 
@@ -201,10 +198,9 @@ class TFSegmenter:
         return emb_output
 
     def __output(self, dec_output):
-        spatial_transformation_layer = Conv1D(self.model_dim,
-                                              kernel_size=1,
-                                              activation="linear",
-                                              name="spatial_transformation_layer")
+
+        output_dropout_layer = Dropout(self.output_dropout)
+
         output_layer = Conv1D(self.tgt_vocab_size + 1,
                               kernel_size=1,
                               activation=gelu,
@@ -214,9 +210,9 @@ class TFSegmenter:
         output_softmax_layer = Softmax(name="word_predictions")
 
         if self.use_crf:
-            return output_layer(spatial_transformation_layer(dec_output))
+            return output_layer(output_dropout_layer(dec_output))
         else:
-            return output_softmax_layer(output_layer(spatial_transformation_layer(dec_output)))
+            return output_softmax_layer(output_layer(output_dropout_layer(dec_output)))
 
     def decode_sequences(self, sequences):
         sequences = self._seq_to_matrix(sequences)
@@ -238,7 +234,7 @@ class TFSegmenter:
                 pos = "<UNK>"
 
             word = sent[i]
-            if c == 's':
+            if c in 'sb':
                 if len(t1) != 0:
                     cur_sent.append(''.join(t1))
                     cur_tag.append(pre_pos)
@@ -246,12 +242,6 @@ class TFSegmenter:
                 pre_pos = pos
             elif c in 'ie':
                 t1.append(word)
-                pre_pos = pos
-            elif c == 'b':
-                if len(t1) != 0:
-                    cur_sent.append(''.join(t1))
-                    cur_tag.append(pre_pos)
-                t1 = [word]
                 pre_pos = pos
 
         if len(t1) != 0:

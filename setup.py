@@ -20,6 +20,8 @@ setup(name='transformer-word-segmenter',
 
       zip_safe=False,
 
-      install_requires=['pandas', 'matplotlib', 'keras', 'keras-transformer'],
+      install_requires=['pandas', 'matplotlib', 'keras'],
+
+      dependency_links=['https://github.com/GlassyWing/keras-transformer/tarball/master#egg=keras-transformer-0.1']
 
       )
