@@ -18,6 +18,7 @@ if __name__ == '__main__':
     epochs = 128
     num_gpu = 1
     max_seq_len = 150
+    initial_epoch = 0
 
     import os
 
@@ -39,16 +40,15 @@ if __name__ == '__main__':
         'max_seq_len': max_seq_len,
         'max_depth': 2,
         'model_dim': 128,
-        'lstm_units': 128,
-        'embedding_dropout': 0.0,
-        'residual_dropout': 0.0,
+        'embedding_size_word': 300,
+        'embedding_dropout': 0.2,
+        'residual_dropout': 0.2,
         'attention_dropout': 0.1,
-        'l2_reg_penalty': 1e-6,
+        'l2_reg_penalty': 0.0,
         'confidence_penalty_weight': 0.1,
         'compression_window_size': None,
-        'num_heads': 8,
-        'use_crf': True,
-        'label_smooth': False
+        'num_heads': 2,
+        'use_crf': True
     }
 
     # K.set_session(get_session(0.9))
@@ -75,13 +75,10 @@ if __name__ == '__main__':
                       write_graph=True,
                       write_grads=False)
 
-    # Use LRFinder to find effective learning rate
-    lr_finder = LRFinder(1e-6, 1e-2, steps_per_epoch, epochs=1)  # => (2e-4, 3e-4)
-    lr_scheduler = LRSchedulerPerStep(segmenter.model_dim, warmup=4000)
-    # lr_scheduler = SGDRScheduler(min_lr=1e-5, max_lr=1e-4, steps_per_epoch=steps_per_epoch,
-    #                              cycle_length=15,
-    #                              lr_decay=0.98,
-    #                              mult_factor=1.5)
+    lr_scheduler = LRSchedulerPerStep(segmenter.model_dim,
+                                      warmup=2500,
+                                      initial_epoch=initial_epoch,
+                                      steps_per_epoch=steps_per_epoch)
 
     X_train, Y_train, X_valid, Y_valid = data_loader.load_data(h5_file_path, frac=0.8)
 
@@ -90,7 +87,8 @@ if __name__ == '__main__':
                                            steps_per_epoch=steps_per_epoch,
                                            validation_data=data_loader.generator_from_data(X_valid, Y_valid),
                                            validation_steps=validation_steps,
-                                           callbacks=[ck, log, lr_scheduler])
+                                           callbacks=[ck, log, lr_scheduler],
+                                           initial_epoch=initial_epoch)
 
     # lr_finder.plot_lr()
     # lr_finder.plot_loss()
