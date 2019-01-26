@@ -128,10 +128,10 @@ class TFSegmenter:
         assert self.max_depth >= 1, "The parameter max_depth is at least 1"
 
         src_seq_input = Input(shape=(self.max_seq_len,), dtype="int32", name="src_seq_input")
-        padding_mask = Lambda(lambda x: padding_mask(x, x))(src_seq_input)
+        mask = Lambda(lambda x: padding_mask(x, x))(src_seq_input)
 
         emb_output = self.__input(src_seq_input)
-        enc_output = self.__encoder(emb_output, padding_mask)
+        enc_output = self.__encoder(emb_output, mask)
 
         if self.use_crf:
             crf = CRF(self.tgt_vocab_size + 1, sparse_target=self.sparse_target)
@@ -155,7 +155,7 @@ class TFSegmenter:
 
         return model, parallel_model
 
-    def __encoder(self, emb_inputs, padding_mask):
+    def __encoder(self, emb_inputs, mask):
 
         transformer_enc_layer = TransformerBlock(
             name='transformer_enc',
@@ -174,7 +174,7 @@ class TFSegmenter:
 
         for step in range(self.max_depth):
             next_step_input = coordinate_embedding_layer(next_step_input, step=step)
-            next_step_input = transformer_enc_layer(next_step_input, padding_mask=padding_mask)
+            next_step_input = transformer_enc_layer(next_step_input, padding_mask=mask)
             next_step_input, act_output = transformer_act_layer(next_step_input)
 
         transformer_act_layer.finalize()
