@@ -14,14 +14,12 @@ setup(name='transformer-word-segmenter',
 
       description='word segmenter base on bidirectional transformer (Transformer encoder)',
 
-      packages=find_packages(where='.', exclude=('examples', 'tests'), include=('segmenter',)),
+      packages=find_packages(where='.', exclude=('examples', 'tests'), include=('tf_segmenter',)),
 
       long_description=open('README.md', encoding="utf-8").read(),
 
       zip_safe=False,
 
       install_requires=['pandas', 'matplotlib', 'keras'],
-
-      dependency_links=['https://github.com/GlassyWing/keras-transformer/tarball/master#egg=keras-transformer-0.1']
 
       )
