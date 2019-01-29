@@ -1,8 +1,6 @@
 # transformer-word-segmenter
 
-这是一个基于 [Universal Transformer (Encoder)](https://arxiv.org/abs/1807.03819) + CRF 的序列标注模型，可以用于分词。
-Universal Transformer 可参考[https://github.com/GlassyWing/keras-transformer](https://github.com/GlassyWing/keras-transformer)
-Transformer 可参考[https://github.com/GlassyWing/transformer-kerasTransformer](https://github.com/GlassyWing/transformer-keras)
+这是一个基于 [Universal Transformer (Encoder)](https://github.com/GlassyWing/keras-transformer) (https://arxiv.org/abs/1807.03819) + CRF 的序列标注模型，可以用于分词。
 
 ## 安装
 
@@ -162,3 +160,8 @@ F MEASURE: 0.956081
 ERR RATE: 0.046712
 ====================================
 ```
+
+## 参考
+
+1. Universal Transformer [https://github.com/GlassyWing/keras-transformer](https://github.com/GlassyWing/keras-transformer)
+2. Transformer [https://github.com/GlassyWing/transformer-keras](https://github.com/GlassyWing/transformer-keras)
