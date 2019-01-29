@@ -14,9 +14,9 @@ if __name__ == '__main__':
 
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
-    tokenizer = get_or_create("../data/default-config.json",
-                              src_dict_path="../data/src_dict.json",
-                              tgt_dict_path="../data/tgt_dict.json",
+    tokenizer = get_or_create("../config/default-config.json",
+                              src_dict_path="../config/src_dict.json",
+                              tgt_dict_path="../config/tgt_dict.json",
                               weights_path="../models/weights.35--0.20.h5")
 
     text = args.text
