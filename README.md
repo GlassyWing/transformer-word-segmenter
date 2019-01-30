@@ -141,7 +141,7 @@ python tools/convert_to_h5.py 2014_processed 2014_processed.h5 -s src_dict.json 
 
 参考: `examples\train_example.py`
 
-50次迭代后, 验证集精度达到 98 %, 随后精确度几乎不再增长。收敛时长与BiLSTM+CRF几乎一样，但参数数量减少了约20万：
+50次迭代后, 验证集精度达到 98 %, 随后精确度增长变得缓慢。收敛时长与BiLSTM+CRF几乎一样，但参数数量减少了约20万：
 
 <div>
     <img src="assets/accuracy.png">
@@ -159,7 +159,16 @@ Precision: 0.953536
 F MEASURE: 0.956081
 ERR RATE: 0.046712
 ====================================
+result-(epoch:86):
+Num of words：20744， accuracy rate：0.962784，error rate：0.039240
+Num of lines：317，accuracy rate：0.454259，error rate：0.545741
+Recall: 0.962784
+Precision: 0.960839
+F MEASURE: 0.961811
+ERR RATE: 0.039240
 ```
+
+在85次迭代后，F1值已经达到96.2%，效果已经可以和2017年最先进的神经词分割器[RichWordSegmentor](http://www.aclweb.org/anthology/P/P17/P17-1078.pdf)媲美。
 
 ## 参考
 
