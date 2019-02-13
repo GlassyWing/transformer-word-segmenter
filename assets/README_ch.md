@@ -1,14 +1,14 @@
 # transformer-word-segmenter
 
-This is a sequence labelling model base on [Universal Transformer (Encoder)](https://arxiv.org/abs/1807.03819) + CRF which can be used for  word segmentation.
+这是一个基于 [Universal Transformer (Encoder)](https://github.com/GlassyWing/keras-transformer) (https://arxiv.org/abs/1807.03819) + CRF 的序列标注模型，可以用于分词。
 
-## Install
+## 安装
 
-Just use `setup.sh` to install.
+使用 `setup.sh` 进行安装
 
-## Usage
+## 使用
 
-You can simplely use factory method `get_or_create` to get model.
+简单的使用工厂函数 `get_or_create` 获得模型
 
 ```python
 from tf_segmenter import get_or_create, TFSegmenter
@@ -17,17 +17,17 @@ if __name__ == '__main__':
     segmenter: TFSegmenter = get_or_create("../data/default-config.json",
                                            src_dict_path="../data/src_dict.json",
                                            tgt_dict_path="../data/tgt_dict.json",
-                                           weights_path="../models/weights.129-0.00.h5")
+                                           weights_path="../models/weights.50--0.18.h5")
 ```
 
-It accepts four params:
+它接收4个参数:
 
-- config: which indicates the configuration used by the model
-- src_dict_path: which indicates the dictionary file for texts.
-- tgt_dict_path: which indicates the dictionary file for tags.
-- weights_path: weights file model used.
+- config: 指定模型使用的配置文件路径或配置字典
+- src_dict_path: 指定文字字典
+- tgt_dict_path: 指定标签字典
+- weights_path: 使用的权重文件.
 
-And then, call `decode_texts` to cut setences.
+然后, 调用 `decode_texts` 切分语句：
 
 ```python
 texts = [
@@ -55,61 +55,58 @@ Results:
 
 ```
 
-It can also identify PEOPLE, ORG or PLACE such as `印度尼西亚国家抗灾署`、`万丹省` and so on.
+它也可以识别人民(nr[f])、地名(ns)、组织机构名(nt[o])等，如 `印度尼西亚国家抗灾署`、`万丹省` 等。
 
-config, weigts and dictionaries link:
+配置, 权重和字典链接:
 
 https://pan.baidu.com/s/1iHADmnSEywoVqq_-nb0bOA password: v34g
 
-## Dataset Process
+## 数据集处理
 
-baidu: https://pan.baidu.com/s/1EtXdhPR0lGF8c7tT8epn6Q password: yj9j
+数据集: https://pan.baidu.com/s/1EtXdhPR0lGF8c7tT8epn6Q 验证码: yj9j
 
-### Convert dataset format
+### 转换数据集格式
 
-The data format in dataset as follow is not what we liked.
+如下的数据集格式**不是**我们所需要的：
 
 > 嫌疑人\n 赵国军\nr 。\w
 
-We convert it by command:
+通过如下命令转换格式:
 
 ```python
-python ner_data_preprocess.py <src_dir> 2014_processed -c True
+python ner_data_preprocess.py <src_dir> 2014_processed -c True -s True
 ```
 
-Where `<src_dir>` indicates training dataset dir, such as `./2014-people/train`.
+ `<src_dir>` 指定训练集路径, 如 `./2014-people/train`.
 
-Now, the data in file `2014_processed` can be seen as follow:
-
-
-
+现在`2014_processed`中的数据类似如下：
 
 > 嫌 疑 人 赵 国 军 。    B-N I-N I-N B-NR I-NR I-NR S-W
 
-### Make dictionaries
+### 制作字典
 
-After data format converted, we expect to make dictionaries:
+数据格式转换后, 制作字典:
 
 ```python
 python tools/make_dicts.py 2014_processed -s src_dict.json -t tgt_dict.json
 ```
 
-This will generate two file:
+这会生成如下两个文件:
 
 - src_dict.json
 - tgt_dict.json
 
-### Convert to hdf5
+### 转为 hdf5 
 
-In order to speed up performance, you can convert pure txt `2014_processed` to hdf5 file.
+为了加速训练，将纯文本 `2014_processed` 转换为 hdf5 文件.
 
 ```python
 python tools/convert_to_h5.py 2014_processed 2014_processed.h5 -s src_dict.json -t tgt_dict.json
 ```
 
-## Training Result
+## 训练效果
 
-The config used as follow:
+使用的配置:
 
 ```json
 {
@@ -131,27 +128,27 @@ The config used as follow:
 }
 ```
 
-And with:
+其它参数:
 
-| param            | value |
-| ---------------- | ----- |
-| batch_size       | 32    |
-| steps_per_epoch  | 2000  |
-| validation_steps | 50    |
-| warmup           | 6000  |
+| 参数             | 值   |
+| ---------------- | ---- |
+| batch_size       | 32   |
+| steps_per_epoch  | 2000 |
+| validation_steps | 50   |
+| warmup           | 6000 |
 
-The training data is divided into training set and verification set according to the ratio of 8:2.
+训练集占比0.975.
 
-see more: `examples\train_example.py`
+参考: `examples\train_example.py`
 
-After 50 epochs, the accuracy of the verification set reached 98 %, the convergence time is almost the same as BiLSTM+CRF, but the number of parameters is reduced by about 200,000.
+50次迭代后, 验证集精度达到 98 %, 随后精确度增长变得缓慢。收敛时长与BiLSTM+CRF几乎一样，但参数数量减少了约20万：
 
 <div>
-    <img src="accuracy.png">
-    <img src="loss.png">
+    <img src="assets/accuracy.png">
+    <img src="assets/loss.png">
 </div>
 
-Test set (`2014-people/test`) evaluation results for word segmetion:
+以词为单位进行测试集(`2014-people/test`)评估:
 
 ```python
 result-(epoch:50):
@@ -171,7 +168,9 @@ F MEASURE: 0.961811
 ERR RATE: 0.039240
 ```
 
-## References
+在85次迭代后，F1值已经达到96.2%，效果已经可以和2017年最先进的神经词分割器[RichWordSegmentor](http://www.aclweb.org/anthology/P/P17/P17-1078.pdf)媲美。
+
+## 参考
 
 1. Universal Transformer [https://github.com/GlassyWing/keras-transformer](https://github.com/GlassyWing/keras-transformer)
 2. Transformer [https://github.com/GlassyWing/transformer-keras](https://github.com/GlassyWing/transformer-keras)
