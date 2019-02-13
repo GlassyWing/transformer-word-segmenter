@@ -144,8 +144,8 @@ python tools/convert_to_h5.py 2014_processed 2014_processed.h5 -s src_dict.json 
 50次迭代后, 验证集精度达到 98 %, 随后精确度增长变得缓慢。收敛时长与BiLSTM+CRF几乎一样，但参数数量减少了约20万：
 
 <div>
-    <img src="assets/accuracy.png">
-    <img src="assets/loss.png">
+    <img src="accuracy.png">
+    <img src="loss.png">
 </div>
 
 以词为单位进行测试集(`2014-people/test`)评估:

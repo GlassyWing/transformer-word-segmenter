@@ -1,6 +1,6 @@
 # transformer-word-segmenter
 
-中文版本
+[中文版本](https://github.com/GlassyWing/transformer-word-segmenter/blob/master/assets/README_ch.md)
 
 This is a sequence labelling model base on [Universal Transformer (Encoder)](https://arxiv.org/abs/1807.03819) + CRF which can be used for  word segmentation.
 
@@ -149,8 +149,8 @@ see more: `examples\train_example.py`
 After 50 epochs, the accuracy of the verification set reached 98 %, the convergence time is almost the same as BiLSTM+CRF, but the number of parameters is reduced by about 200,000.
 
 <div>
-    <img src="accuracy.png">
-    <img src="loss.png">
+    <img src="assets/accuracy.png">
+    <img src="assets/loss.png">
 </div>
 
 Test set (`2014-people/test`) evaluation results for word segmetion:
